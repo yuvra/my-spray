@@ -1,0 +1,10 @@
+# google-services.json
+
+A starter file exists so `expo prebuild` can run. **Replace it** with the official file from Firebase:
+
+1. [Firebase Console](https://console.firebase.google.com) → **my-spray-ad2aa**
+2. Project settings → **Add app** → **Android**
+3. Package name: `com.farmspray.app`
+4. Download **google-services.json** → overwrite `my-spray/google-services.json`
+
+The `mobilesdk_app_id` in the starter file is a placeholder until you do this.

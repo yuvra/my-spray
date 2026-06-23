@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "my-spray",
+    "name": "Farm Spray",
     "slug": "my-spray",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -8,16 +8,30 @@
     "scheme": "myspray",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "bundleIdentifier": "farm.spray",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Farm Spray uses your location to show local weather and spray advisories.",
+        "NSPhotoLibraryUsageDescription": "Farm Spray lets you share photos in farmer community groups.",
+        "NSCameraUsageDescription": "Farm Spray lets you take photos to share in community groups."
+      }
     },
     "android": {
+      "package": "farm.spray",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#9B1B30",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "READ_MEDIA_IMAGES",
+        "READ_MEDIA_VIDEO"
+      ],
+      "predictiveBackGestureEnabled": false,
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "output": "static",
@@ -25,10 +39,24 @@
     },
     "plugins": [
       "expo-router",
+      "expo-localization",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Farm Spray uses your location for weather and spray advisories."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Share photos with fellow farmers in crop community groups.",
+          "cameraPermission": "Take photos to share in community groups."
+        }
+      ],
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
+          "backgroundColor": "#9B1B30",
           "android": {
             "image": "./assets/images/splash-icon.png",
             "imageWidth": 76
@@ -39,6 +67,11 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "your-eas-project-id"
+      }
     }
   }
 }

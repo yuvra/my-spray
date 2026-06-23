@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1036243987804",
+    "project_id": "my-spray-ad2aa",
+    "storage_bucket": "my-spray-ad2aa.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1036243987804:android:8dd43bb2d8f4db1c51e599",
+        "android_client_info": {
+          "package_name": "farm.spray"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB3m03Fbr4dF8V84vLMDDNwzw6RHjasgzs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

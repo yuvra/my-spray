@@ -18,6 +18,8 @@ import { useAuthStore } from '@/stores/useAuthStore';
 import { useFarmStore } from '@/stores/useFarmStore';
 import { useScheduleStore } from '@/stores/useScheduleStore';
 import {
+  getActivityCardDetails,
+  getActivityCardSubtitle,
   getActivityDetails,
   getActivityDisplayCost,
   getActivityTitle,
@@ -200,7 +202,9 @@ export function FarmActivitySection() {
                   variant={getActivityVariant(log)}
                   moonPhase={log.moonPhase}
                   title={getActivityTitle(log, t)}
-                  details={getActivityDetails(log, t)}
+                  subtitle={getActivityCardSubtitle(log, t)}
+                  details={getActivityCardDetails(log, t)}
+                  fullDetails={getActivityDetails(log, t)}
                   cost={getActivityDisplayCost(log)}
                   onEdit={() => openEditModal(log)}
                   onDelete={() => handleDeleteActivity(log)}

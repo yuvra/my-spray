@@ -18,6 +18,7 @@ type IconProps = { size?: number };
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 const AnimatedG = Animated.createAnimatedComponent(G);
+const AnimatedEllipse = Animated.createAnimatedComponent(Ellipse);
 
 const TREE_GREEN = '#388E3C';
 const TREE_DARK = '#2E7D32';
@@ -27,6 +28,12 @@ const IRRIGATION_BLUE = '#0284C7';
 const IRRIGATION_LIGHT = '#7DD3FC';
 const TANK_GREEN = '#81C784';
 const GUN_METAL = '#546E7A';
+const WORKER_PURPLE = '#7C3AED';
+const WORKER_SKIN = '#FBBF77';
+const WORKER_PANTS = '#374151';
+const HOE_WOOD = '#92400E';
+const SOIL = '#8D6E63';
+const SOIL_DUST = '#BCAAA4';
 
 function useSprayParticle(
   fromX: number,
@@ -90,9 +97,6 @@ export function AnimatedSprayCardIcon({ size = 48 }: IconProps) {
   return (
     <View style={[styles.wrap, { width: size, height: size }]}>
       <Svg width={size} height={size} viewBox="0 0 48 48" fill="none">
-        {/* Sky tint */}
-        <Rect x={0} y={0} width={48} height={48} fill="#F1F8E9" opacity={0.5} />
-
         {/* Ground */}
         <Path d="M2 43h44" stroke="#8D6E63" strokeWidth={1.8} strokeLinecap="round" />
         <Ellipse cx={24} cy={43.5} rx={18} ry={2} fill="#A5D6A7" opacity={0.35} />
@@ -218,6 +222,109 @@ export function AnimatedIrrigationCardIcon({ size = 48 }: IconProps) {
   );
 }
 
+/** Farm worker hoeing the field */
+export function AnimatedWorkerPayCardIcon({ size = 48 }: IconProps) {
+  const swing = useSharedValue(0);
+  const dust = useSharedValue(0);
+
+  useEffect(() => {
+    swing.value = withRepeat(
+      withTiming(1, { duration: 1100, easing: Easing.inOut(Easing.sin) }),
+      -1,
+      true,
+    );
+    dust.value = withRepeat(
+      withTiming(1, { duration: 1100, easing: Easing.out(Easing.quad) }),
+      -1,
+      false,
+    );
+  }, [dust, swing]);
+
+  const armProps = useAnimatedProps(() => ({
+    rotation: -42 + swing.value * 34,
+    originX: 19,
+    originY: 23,
+  }));
+
+  const bodyProps = useAnimatedProps(() => ({
+    rotation: -2 + swing.value * 4,
+    originX: 17,
+    originY: 34,
+  }));
+
+  const dustProps = useAnimatedProps(() => {
+    const hit = dust.value > 0.72 && dust.value < 0.95;
+    const puff = hit ? 1 - Math.abs(dust.value - 0.84) * 8 : 0;
+    return {
+      opacity: Math.max(0, puff),
+      cx: 30 + puff * 2,
+      cy: 38 - puff * 3,
+      rx: 1.5 + puff * 2.5,
+      ry: 0.8 + puff * 1.2,
+    };
+  });
+
+  const dust2Props = useAnimatedProps(() => {
+    const hit = dust.value > 0.75 && dust.value < 0.98;
+    const puff = hit ? 1 - Math.abs(dust.value - 0.86) * 7 : 0;
+    return {
+      opacity: Math.max(0, puff * 0.75),
+      cx: 33 + puff * 1.5,
+      cy: 36 - puff * 4,
+      r: 0.8 + puff * 1.4,
+    };
+  });
+
+  return (
+    <View style={[styles.wrap, { width: size, height: size }]}>
+      <Svg width={size} height={size} viewBox="0 0 48 48" fill="none">
+        {/* Field rows */}
+        <Path d="M26 43h20" stroke="#A5D6A7" strokeWidth={1.2} strokeLinecap="round" />
+        <Path d="M28 40h16" stroke="#81C784" strokeWidth={1} strokeLinecap="round" opacity={0.7} />
+        <Path d="M30 37h12" stroke="#A5D6A7" strokeWidth={1} strokeLinecap="round" opacity={0.6} />
+        <Path d="M2 43h22" stroke={SOIL} strokeWidth={1.8} strokeLinecap="round" />
+        <Ellipse cx={24} cy={43.5} rx={18} ry={2} fill="#C4B5FD" opacity={0.25} />
+
+        {/* Small crop sprouts */}
+        <Path d="M32 40v-4M32 38c1.5-1.5 3-1.5 4 0" stroke="#388E3C" strokeWidth={1.2} strokeLinecap="round" />
+        <Path d="M38 41v-3M38 39.5c1-1 2-1 2.5 0" stroke="#43A047" strokeWidth={1} strokeLinecap="round" />
+        <Path d="M42 40v-5M42 37.5c1.2-1.8 2.8-1.8 4 0" stroke="#388E3C" strokeWidth={1.2} strokeLinecap="round" />
+
+        <AnimatedG animatedProps={bodyProps}>
+          {/* Legs */}
+          <Path d="M14 34 L12 42" stroke={WORKER_PANTS} strokeWidth={2.6} strokeLinecap="round" />
+          <Path d="M18 34 L20 42" stroke={WORKER_PANTS} strokeWidth={2.6} strokeLinecap="round" />
+
+          {/* Torso + head */}
+          <Path d="M12 24 Q17 22 22 24 L20 34 Q17 35 14 34 Z" fill={WORKER_PURPLE} stroke={WORKER_PURPLE} strokeWidth={0.5} />
+          <Circle cx={17} cy={18} r={4.2} fill={WORKER_SKIN} stroke="#F59E0B" strokeWidth={0.6} />
+          <Path d="M14.5 17.5 Q17 16 19.5 17.5" stroke="#92400E" strokeWidth={0.8} strokeLinecap="round" opacity={0.5} />
+
+          {/* Static support arm */}
+          <Path d="M13 25 L10 30" stroke={WORKER_SKIN} strokeWidth={2.2} strokeLinecap="round" />
+        </AnimatedG>
+
+        {/* Working arm + hoe */}
+        <AnimatedG animatedProps={armProps}>
+          <Path d="M20 24 L28 30" stroke={WORKER_SKIN} strokeWidth={2.4} strokeLinecap="round" />
+          <Path d="M28 30 L36 38" stroke={HOE_WOOD} strokeWidth={2.2} strokeLinecap="round" />
+          <Path
+            d="M34 36 L40 40 L38 42 L32 38 Z"
+            fill={GUN_METAL}
+            stroke="#455A64"
+            strokeWidth={0.8}
+            strokeLinejoin="round"
+          />
+        </AnimatedG>
+
+        {/* Soil puff on hoe strike */}
+        <AnimatedEllipse animatedProps={dustProps} fill={SOIL_DUST} />
+        <AnimatedCircle animatedProps={dust2Props} fill={SOIL} />
+      </Svg>
+    </View>
+  );
+}
+
 export function getAnimatedCardIcon(
   variant: ActivityVariant,
   size = 48,
@@ -234,6 +341,8 @@ export function getAnimatedCardIcon(
       return <AnimatedSprayCardIcon size={size} />;
     case 'irrigation':
       return <AnimatedIrrigationCardIcon size={size} />;
+    case 'labour':
+      return <AnimatedWorkerPayCardIcon size={size} />;
     default:
       return null;
   }

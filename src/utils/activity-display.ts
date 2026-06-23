@@ -75,11 +75,7 @@ function productDetailFromLines(
 export function getActivityTitle(log: FarmActivityLog, t: TFunction): string {
   if (isWorkerSpendActivity(log.activityType)) {
     if (log.workName?.trim()) return log.workName.trim();
-    if (log.workerName) {
-      return log.workerSpend
-        ? `${log.workerName} · ₹${Math.round(log.workerSpend).toLocaleString('en-IN')}`
-        : log.workerName;
-    }
+    if (log.workerName?.trim()) return log.workerName.trim();
     return t('home.activityTypes.worker_spend');
   }
   if (isCulturalActivity(log.activityType) && log.workName?.trim()) {
@@ -93,6 +89,30 @@ export function getActivityTitle(log: FarmActivityLog, t: TFunction): string {
     return irrigationSubs.map((st) => t(`home.irrigationSubTypes.${st}`)).join(' + ');
   }
   return t(`home.activityTypes.${log.activityType}`);
+}
+
+/** One-line summary on worker pay cards — worker + amount only. */
+export function getActivityCardSubtitle(log: FarmActivityLog, _t: TFunction): string | undefined {
+  if (!isWorkerSpendActivity(log.activityType)) return undefined;
+
+  const pay =
+    log.workerSpend != null && log.workerSpend > 0
+      ? `₹${Math.round(log.workerSpend).toLocaleString('en-IN')}`
+      : undefined;
+  const work = log.workName?.trim();
+  const worker = log.workerName?.trim();
+
+  if (work) {
+    const parts = [worker, pay].filter(Boolean);
+    return parts.length ? parts.join(' · ') : undefined;
+  }
+  return pay;
+}
+
+/** Details shown on the card. Worker pay keeps the card minimal — full text is in the ⓘ modal. */
+export function getActivityCardDetails(log: FarmActivityLog, t: TFunction): ActivityDetail[] {
+  if (isWorkerSpendActivity(log.activityType)) return [];
+  return getActivityDetails(log, t);
 }
 
 export function getActivityDetails(log: FarmActivityLog, t: TFunction): ActivityDetail[] {

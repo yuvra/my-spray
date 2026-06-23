@@ -13,3 +13,28 @@
 [info] https://accounts.google.com/o/oauth2/auth?client_id=563584335869-fgrhgmd47bqnekij5i8b5pr03ho849e6.apps.googleusercontent.com&scope=email%20openid%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcloudplatformprojects.readonly%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Ffirebase%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcloud-platform&response_type=code&state=216210184&redirect_uri=http%3A%2F%2Flocalhost%3A9005
 [info] 
 [info] Waiting for authentication...
+[debug] [2026-06-23T20:42:42.613Z] >>> [apiv2][query] POST https://accounts.google.com/o/oauth2/token [none]
+[debug] [2026-06-23T20:42:42.613Z] >>> [apiv2][body] POST https://accounts.google.com/o/oauth2/token [omitted]
+[debug] [2026-06-23T20:42:42.769Z] Token Fetch Error: FirebaseError: FetchError: Invalid response body while trying to fetch https://accounts.google.com/o/oauth2/token: Premature close
+    at RetryOperation._fn (C:\Users\Yuraj Mane\AppData\Roaming\npm\node_modules\firebase-tools\lib\apiv2.js:317:88)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+[error] Authentication Error: Your credentials are no longer valid. Please run firebase login --reauth
+
+For CI servers and headless environments, generate a new token with firebase login:ci
+[debug] [2026-06-23T20:42:42.776Z] >>> [apiv2][query] POST https://auth.firebase.tools/attest [none]
+[debug] [2026-06-23T20:42:42.777Z] >>> [apiv2][body] POST https://auth.firebase.tools/attest {"session_id":"d810c073-71d8-41e0-822a-e5ee4b26b606"}
+[debug] [2026-06-23T20:42:43.227Z] <<< [apiv2][status] POST https://auth.firebase.tools/attest 200
+[debug] [2026-06-23T20:42:43.227Z] <<< [apiv2][body] POST https://auth.firebase.tools/attest {"token":"yJncE6Ant4t81xUq3C-pjZMzGUaRX9AsYYAE9lEDo9I"}
+[info] 
+[info] To sign in to the Firebase CLI:
+[info] 
+[info] 1. Take note of your session ID:
+[info] 
+[info]    D810C
+[info] 
+[info] 2. Visit the URL below on any device and follow the instructions to get your code:
+[info] 
+[info]    https://auth.firebase.tools/login?code_challenge=kDzoLmTb7BXP5YWkzWV17ndtADljONuc6DFAsiiFGjQ&session=d810c073-71d8-41e0-822a-e5ee4b26b606&attest=yJncE6Ant4t81xUq3C-pjZMzGUaRX9AsYYAE9lEDo9I
+[info] 
+[info] 3. Paste or enter the authorization code below once you have it:
+[info] 

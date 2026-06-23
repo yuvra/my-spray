@@ -1,7 +1,15 @@
 import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
+import Animated, {
+  type SharedValue,
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 
 import {
   FertActivityIcon,
@@ -28,7 +36,7 @@ import { getAnimatedCardIcon } from '@/components/icons/AnimatedActivityCardIcon
 export type { ActivityVariant };
 
 const TEXT = '#1F2937';
-const TEXT_SECONDARY = '#4B5563';
+const DOUBLE_TAP_MS = 320;
 
 const VARIANT_THEME: Record<
   ActivityVariant,
@@ -109,7 +117,10 @@ export function getCardBadgeIcon(
 type Props = {
   icon?: ReactNode;
   title: string;
+  subtitle?: string;
   details: ActivityDetail[];
+  /** Full detail list for the ⓘ modal; defaults to `details`. */
+  fullDetails?: ActivityDetail[];
   cost?: number;
   variant?: ActivityVariant;
   moonPhase?: MoonPhase;
@@ -120,9 +131,11 @@ type Props = {
 function DetailRow({
   detail,
   theme,
+  small,
 }: {
   detail: ActivityDetail;
   theme: (typeof VARIANT_THEME)[ActivityVariant];
+  small?: boolean;
 }) {
   const displayValue = detail.cardValue ?? detail.value;
   const chips = displayValue.includes('\n')
@@ -130,19 +143,29 @@ function DetailRow({
     : displayValue.includes(',')
       ? displayValue.split(',').map((s) => s.trim()).filter(Boolean)
       : [displayValue];
+  const iconSize = small ? 14 : 18;
 
   return (
-    <View style={styles.detailBlock}>
+    <View style={[styles.detailBlock, small && styles.detailBlockSmall]}>
       <View style={styles.detailHeader}>
-        <View style={[styles.detailIconWrap, { backgroundColor: theme.chipBg }]}>
-          {DETAIL_ICON[detail.key](18)}
+        <View
+          style={[
+            styles.detailIconWrap,
+            small && styles.detailIconWrapSmall,
+            { backgroundColor: theme.chipBg },
+          ]}>
+          {DETAIL_ICON[detail.key](iconSize)}
         </View>
-        <Text style={styles.detailLabel}>{detail.label}</Text>
+        <Text style={[styles.detailLabel, small && styles.detailLabelSmall]}>{detail.label}</Text>
       </View>
-      <View style={styles.chipsRow}>
+      <View style={[styles.chipsRow, small && styles.chipsRowSmall]}>
         {chips.map((chip) => (
-          <View key={`${detail.key}-${chip}`} style={[styles.chip, { backgroundColor: theme.chipBg }]}>
-            <Text style={[styles.chipText, { color: theme.chipText }]} numberOfLines={2}>
+          <View
+            key={`${detail.key}-${chip}`}
+            style={[styles.chip, small && styles.chipSmall, { backgroundColor: theme.chipBg }]}>
+            <Text
+              style={[styles.chipText, small && styles.chipTextSmall, { color: theme.chipText }]}
+              numberOfLines={2}>
               {chip}
             </Text>
           </View>
@@ -152,10 +175,42 @@ function DetailRow({
   );
 }
 
+function AnimatedActionButton({
+  enabled,
+  actionsVisible,
+  progress,
+  children,
+}: {
+  enabled: boolean;
+  actionsVisible: boolean;
+  progress: SharedValue<number>;
+  children: ReactNode;
+}) {
+  const animStyle = useAnimatedStyle(() => ({
+    opacity: progress.value,
+    width: progress.value * 32,
+    overflow: 'hidden',
+    transform: [
+      { scale: 0.55 + progress.value * 0.45 },
+      { translateX: (1 - progress.value) * 8 },
+    ],
+  }));
+
+  if (!enabled) return null;
+
+  return (
+    <Animated.View style={animStyle} pointerEvents={actionsVisible ? 'auto' : 'none'}>
+      {children}
+    </Animated.View>
+  );
+}
+
 export function ActivityCard({
   icon,
   title,
+  subtitle,
   details,
+  fullDetails,
   cost,
   variant = 'cultural',
   moonPhase,
@@ -164,73 +219,158 @@ export function ActivityCard({
 }: Props) {
   const { t } = useTranslation();
   const theme = VARIANT_THEME[variant];
+  const smallContent = variant === 'labour';
   const badgeIcon = icon ?? getCardBadgeIcon(variant, 48, moonPhase);
   const [showFullText, setShowFullText] = useState(false);
+  const [actionsVisible, setActionsVisible] = useState(false);
+  const shake = useSharedValue(0);
+  const actionsProgress = useSharedValue(0);
+  const lastTapAt = useRef(0);
+  const hasManageActions = Boolean(onEdit || onDelete);
+  const modalDetails = fullDetails ?? details;
 
-  const modalBody = buildFullBody(title, details, cost, t);
+  useEffect(() => {
+    actionsProgress.value = withSpring(actionsVisible ? 1 : 0, {
+      damping: 14,
+      stiffness: 220,
+    });
+  }, [actionsVisible, actionsProgress]);
+
+  const playShake = useCallback(() => {
+    shake.value = withSequence(
+      withTiming(1, { duration: 45 }),
+      withTiming(-1, { duration: 45 }),
+      withTiming(0.75, { duration: 45 }),
+      withTiming(-0.75, { duration: 45 }),
+      withTiming(0, { duration: 45 }),
+    );
+  }, [shake]);
+
+  const revealActions = useCallback(() => {
+    playShake();
+    setTimeout(() => setActionsVisible(true), 160);
+  }, [playShake]);
+
+  const handleCardPress = useCallback(() => {
+    if (!hasManageActions) return;
+
+    const now = Date.now();
+    const isDoubleTap = now - lastTapAt.current <= DOUBLE_TAP_MS;
+    lastTapAt.current = now;
+
+    if (!isDoubleTap) return;
+
+    lastTapAt.current = 0;
+    if (!actionsVisible) {
+      revealActions();
+    } else {
+      setActionsVisible(false);
+    }
+  }, [actionsVisible, hasManageActions, revealActions]);
+
+  const cardShakeStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: shake.value * 5 },
+      { rotate: `${shake.value * 2.2}deg` },
+    ],
+  }));
+
+  const modalBody = buildFullBody(title, modalDetails, cost, t);
 
   return (
     <>
-      <View style={styles.cardOuter}>
+      <Animated.View style={[styles.cardOuter, cardShakeStyle]}>
         <View style={[styles.accentBar, { backgroundColor: theme.accent }]} />
         <View style={styles.card}>
           <View style={styles.topRow}>
-            <View style={[styles.iconBadge, { backgroundColor: theme.tint }]}>
-              <View style={styles.iconInner}>{badgeIcon}</View>
-            </View>
-            <View style={styles.headerText}>
-              <View style={styles.headerTop}>
+            <Pressable
+              onPress={handleCardPress}
+              disabled={!hasManageActions}
+              style={styles.cardTapArea}
+              accessibilityRole="button"
+              accessibilityLabel={
+                hasManageActions
+                  ? actionsVisible
+                    ? t('home.hideCardActions')
+                    : t('home.showCardActions')
+                  : undefined
+              }>
+              <View style={styles.iconBadgeWrap}>
+                <View style={[styles.iconBadge, { backgroundColor: theme.tint }]}>
+                  <View style={styles.iconInner}>{badgeIcon}</View>
+                </View>
+              </View>
+              <View style={styles.headerText}>
                 <View style={[styles.typePill, { backgroundColor: theme.tint }]}>
                   <Text style={[styles.typePillText, { color: theme.accent }]}>
                     {t(theme.labelKey)}
                   </Text>
                 </View>
-                <View style={styles.cardActions}>
-                  {onEdit ? (
-                    <Pressable
-                      onPress={onEdit}
-                      hitSlop={8}
-                      style={[styles.iconActionBtn, { backgroundColor: theme.tint }]}
-                      accessibilityRole="button"
-                      accessibilityLabel={t('schedule.edit')}>
-                      <EditIcon size={18} color={theme.accent} strokeWidth={2} />
-                    </Pressable>
-                  ) : null}
-                  {onDelete ? (
-                    <Pressable
-                      onPress={onDelete}
-                      hitSlop={8}
-                      style={styles.iconActionBtnDanger}
-                      accessibilityRole="button"
-                      accessibilityLabel={t('schedule.delete')}>
-                      <DeleteIcon size={18} color="#DC2626" strokeWidth={2} />
-                    </Pressable>
-                  ) : null}
-                  <Pressable
-                    onPress={() => setShowFullText(true)}
-                    hitSlop={8}
-                    style={[styles.iconActionBtn, { backgroundColor: theme.tint }]}
-                    accessibilityRole="button"
-                    accessibilityLabel={t('home.viewFullActivity')}>
-                    <InfoIcon size={18} color={theme.accent} strokeWidth={2} />
-                  </Pressable>
-                </View>
+                <Text style={[styles.title, smallContent && styles.titleSmall]} numberOfLines={2}>
+                  {title}
+                </Text>
+                {subtitle ? (
+                  <Text
+                    style={[styles.subtitle, smallContent && styles.subtitleSmall]}
+                    numberOfLines={1}>
+                    {subtitle}
+                  </Text>
+                ) : null}
               </View>
-              <Text style={styles.title} numberOfLines={2}>
-                {title}
-              </Text>
+            </Pressable>
+            <View style={[styles.cardActions, { gap: actionsVisible ? 6 : 0 }]}>
+              <AnimatedActionButton enabled={Boolean(onEdit)} actionsVisible={actionsVisible} progress={actionsProgress}>
+                <Pressable
+                  onPress={onEdit}
+                  hitSlop={8}
+                  style={[styles.iconActionBtn, { backgroundColor: theme.tint }]}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('schedule.edit')}>
+                  <EditIcon size={18} color={theme.accent} strokeWidth={2} />
+                </Pressable>
+              </AnimatedActionButton>
+              <AnimatedActionButton enabled={Boolean(onDelete)} actionsVisible={actionsVisible} progress={actionsProgress}>
+                <Pressable
+                  onPress={onDelete}
+                  hitSlop={8}
+                  style={styles.iconActionBtnDanger}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('schedule.delete')}>
+                  <DeleteIcon size={18} color="#DC2626" strokeWidth={2} />
+                </Pressable>
+              </AnimatedActionButton>
+              <Pressable
+                onPress={() => setShowFullText(true)}
+                hitSlop={8}
+                style={[styles.iconActionBtn, { backgroundColor: theme.tint }]}
+                accessibilityRole="button"
+                accessibilityLabel={t('home.viewFullActivity')}>
+                <InfoIcon size={18} color={theme.accent} strokeWidth={2} />
+              </Pressable>
             </View>
           </View>
 
           {details.length > 0 ? (
-            <View style={[styles.details, { backgroundColor: theme.tint }]}>
+            <Pressable
+              onPress={handleCardPress}
+              disabled={!hasManageActions}
+              style={[
+                styles.details,
+                smallContent && styles.detailsSmall,
+                { backgroundColor: theme.tint },
+              ]}>
               {details.map((detail, index) => (
-                <DetailRow key={`${detail.key}-${index}`} detail={detail} theme={theme} />
+                <DetailRow
+                  key={`${detail.key}-${index}`}
+                  detail={detail}
+                  theme={theme}
+                  small={smallContent}
+                />
               ))}
-            </View>
+            </Pressable>
           ) : null}
         </View>
-      </View>
+      </Animated.View>
 
       <Modal
         visible={showFullText}
@@ -286,6 +426,7 @@ const styles = StyleSheet.create({
   accentBar: { width: 5 },
   card: {
     flex: 1,
+    minWidth: 0,
     backgroundColor: '#FFFFFF',
     padding: Spacing.three,
     gap: Spacing.two,
@@ -294,6 +435,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: Spacing.two,
+    minWidth: 0,
+  },
+  cardTapArea: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.two,
+  },
+  iconBadgeWrap: {
+    flexShrink: 0,
   },
   iconBadge: {
     width: 56,
@@ -301,19 +453,15 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
   iconInner: {
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerText: { flex: 1, gap: 6 },
-  headerTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
+  headerText: { flex: 1, minWidth: 0, gap: 6 },
   typePill: {
+    alignSelf: 'flex-start',
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 10,
@@ -321,9 +469,9 @@ const styles = StyleSheet.create({
   typePillText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.4, textTransform: 'uppercase' },
   cardActions: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
+    alignItems: 'flex-start',
     flexShrink: 0,
+    paddingTop: 2,
   },
   iconActionBtn: {
     width: 32,
@@ -340,13 +488,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#FEF2F2',
   },
-  title: { fontSize: 16, fontWeight: '700', color: TEXT, lineHeight: 22 },
+  title: { fontSize: 16, fontWeight: '700', color: TEXT, lineHeight: 22, flexShrink: 1 },
+  titleSmall: { fontSize: 14, lineHeight: 20 },
+  subtitle: { fontSize: 13, fontWeight: '600', color: '#6B7280', lineHeight: 18, flexShrink: 1 },
+  subtitleSmall: { fontSize: 12, lineHeight: 16 },
   details: {
     borderRadius: 12,
     padding: Spacing.two,
     gap: Spacing.two,
   },
+  detailsSmall: {
+    padding: 10,
+    gap: 10,
+  },
   detailBlock: { gap: 8 },
+  detailBlockSmall: { gap: 6 },
   detailHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -359,13 +515,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  detailIconWrapSmall: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+  },
   detailLabel: {
     fontSize: 12,
     fontWeight: '700',
     color: TEXT,
     flex: 1,
   },
+  detailLabelSmall: { fontSize: 11 },
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingLeft: 36 },
+  chipsRowSmall: { gap: 4, paddingLeft: 30 },
   chip: {
     borderRadius: 16,
     paddingHorizontal: 10,
@@ -377,7 +540,13 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 1,
   },
+  chipSmall: {
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
   chipText: { fontSize: 12, fontWeight: '600', lineHeight: 16 },
+  chipTextSmall: { fontSize: 11, lineHeight: 14 },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.45)',

@@ -1,0 +1,50 @@
+# Product catalog from Firestore
+
+Fungicide and insecticide pickers load from the Firestore **`products`** collection.
+
+## Option A — Krushi Sarthi project (recommended)
+
+Source: [krushisarthi-be143 → products](https://console.firebase.google.com/project/krushisarthi-be143/firestore/databases/-default-/data/~2Fproducts)
+
+1. In Firebase Console → **krushisarthi-be143** → Project settings → Your apps → Web app, copy the config.
+2. Add to `.env`:
+
+```env
+EXPO_PUBLIC_CATALOG_FIREBASE_API_KEY=...
+EXPO_PUBLIC_CATALOG_FIREBASE_AUTH_DOMAIN=krushisarthi-be143.firebaseapp.com
+EXPO_PUBLIC_CATALOG_FIREBASE_PROJECT_ID=krushisarthi-be143
+EXPO_PUBLIC_CATALOG_FIREBASE_STORAGE_BUCKET=...
+EXPO_PUBLIC_CATALOG_FIREBASE_MESSAGING_SENDER_ID=...
+EXPO_PUBLIC_CATALOG_FIREBASE_APP_ID=...
+```
+
+3. On **krushisarthi-be143**, allow read access to `products` (Firestore rules), e.g.:
+
+```
+match /products/{productId} {
+  allow read: if true;
+}
+```
+
+Deploy rules on that project. Without read access, the app falls back to built-in lists.
+
+4. Restart Expo: `npx expo start`
+
+## Option B — Same project as my-spray
+
+Copy or sync the `products` collection into **my-spray-ad2aa** and leave catalog env vars empty. The app reads `products` from your main Firebase project (signed-in users only — see `firestore.rules`).
+
+## Expected document shape
+
+Each document in `products` should include a **name** and **category**:
+
+| Field | Examples |
+|-------|----------|
+| `name` or `productName` | **Biostadt Roko**, **Proclaim**, **Hamla** (brand names, not chemical names) |
+| `productType.en` | `Fungicides`, `Insecticides` |
+| `mapVariant.*.price` | Pack price (converted to ₹/kg or ₹/L automatically) |
+| `chemicalComposition` | Active ingredient (informational) |
+
+## Built-in seed (offline)
+
+If Firestore is unavailable, the app loads **27 brand-name products** from `src/data/krushi-sarthi-seed.ts` with typical dose (g/ml per L) and retail price (₹). Tap **Import product list** in Expenses → ⚙️ to refresh from Firestore prices.

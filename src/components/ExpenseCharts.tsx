@@ -1,96 +1,69 @@
 import { StyleSheet, View } from 'react-native';
-import { BarChart, LineChart, PieChart } from 'react-native-gifted-charts';
+import { BarChart } from 'react-native-gifted-charts';
 import { useTranslation } from 'react-i18next';
 
 import { Card } from '@/components/ui/form';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { useExpenseStore } from '@/stores/useExpenseStore';
 import { useScheduleStore } from '@/stores/useScheduleStore';
+import { getActivityExpenseTotal, getDailyActivityExpenses } from '@/utils/expense-analytics';
+
+function formatInr(value: number): string {
+  return `₹${Math.round(value).toLocaleString('en-IN')}`;
+}
 
 export function ExpenseCharts() {
   const { t } = useTranslation();
   const theme = useTheme();
-  const getCategoryTotal = useExpenseStore((s) => s.getCategoryTotal);
-  const getGrandTotal = useExpenseStore((s) => s.getGrandTotal);
-  const sprayLogs = useScheduleStore((s) => s.sprayLogs);
-  const fertilizerLogs = useScheduleStore((s) => s.fertilizerLogs);
+  const farmActivityLogs = useScheduleStore((s) => s.farmActivityLogs);
 
-  const categories = [
-    { key: 'insecticide', color: theme.chart1 },
-    { key: 'fungicide', color: theme.chart2 },
-    { key: 'fertilizer', color: theme.chart3 },
-    { key: 'labour', color: theme.chart4 },
-  ] as const;
-
-  const barData = categories.map((c) => ({
-    value: getCategoryTotal(c.key),
-    label: t(`expenses.${c.key}`).slice(0, 6),
-    frontColor: c.color,
+  const dailyRows = getDailyActivityExpenses(farmActivityLogs);
+  const dailyActivityData = dailyRows.map((d) => ({
+    value: d.value,
+    label: d.label,
+    frontColor: theme.primary,
   }));
 
-  const pieData = categories
-    .map((c) => ({ value: getCategoryTotal(c.key), color: c.color, text: t(`expenses.${c.key}`) }))
-    .filter((d) => d.value > 0);
-
-  const allLogs = [...sprayLogs, ...fertilizerLogs].sort((a, b) => a.date.localeCompare(b.date));
-  let cumulative = 0;
-  const lineData = allLogs.map((log) => {
-    cumulative += 'cost' in log ? log.cost : 0;
-    return { value: cumulative, label: log.date.slice(5) };
-  });
-
-  const total = getGrandTotal();
+  const activityTotal = getActivityExpenseTotal(farmActivityLogs);
 
   return (
     <View style={styles.container}>
       <Card>
-        <ThemedText type="smallBold">{t('expenses.total')}: ₹{total.toLocaleString()}</ThemedText>
+        <ThemedText type="smallBold">{t('expenses.totalSpend')}</ThemedText>
+        <ThemedText type="title" style={styles.totalAmount}>
+          {formatInr(activityTotal)}
+        </ThemedText>
       </Card>
 
       <Card>
-        <ThemedText type="smallBold">{t('expenses.breakdown')}</ThemedText>
-        {barData.some((d) => d.value > 0) ? (
+        <ThemedText type="smallBold">{t('expenses.dailySpend')}</ThemedText>
+        {dailyActivityData.length > 0 ? (
           <BarChart
-            data={barData}
-            barWidth={32}
-            spacing={16}
+            data={dailyActivityData}
+            barWidth={28}
+            spacing={12}
             roundedTop
             hideRules
+            yAxisLabelPrefix="₹"
+            formatYLabel={(v) => Math.round(Number(v)).toLocaleString('en-IN')}
             yAxisTextStyle={{ color: theme.textSecondary }}
             xAxisLabelTextStyle={{ color: theme.textSecondary, fontSize: 10 }}
             noOfSections={4}
+            maxValue={Math.max(...dailyRows.map((d) => d.value), 1) * 1.2}
           />
         ) : (
-          <ThemedText themeColor="textSecondary">{t('schedule.noLogs')}</ThemedText>
+          <ThemedText themeColor="textSecondary" style={styles.empty}>
+            {t('expenses.noSpendYet')}
+          </ThemedText>
         )}
       </Card>
-
-      {pieData.length > 0 && (
-        <Card style={styles.center}>
-          <PieChart data={pieData} donut radius={90} innerRadius={50} showText />
-        </Card>
-      )}
-
-      {lineData.length > 1 && (
-        <Card>
-          <ThemedText type="smallBold">{t('expenses.cumulativeSpend')}</ThemedText>
-          <LineChart
-            data={lineData}
-            color={theme.primary}
-            thickness={2}
-            hideRules
-            yAxisTextStyle={{ color: theme.textSecondary }}
-            xAxisLabelTextStyle={{ color: theme.textSecondary, fontSize: 10 }}
-          />
-        </Card>
-      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { gap: Spacing.three },
-  center: { alignItems: 'center' },
+  totalAmount: { marginTop: Spacing.one },
+  empty: { marginTop: Spacing.two },
 });

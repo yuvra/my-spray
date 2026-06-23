@@ -11,6 +11,7 @@ import {
 } from '@/services/firestoreService';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useScheduleStore } from '@/stores/useScheduleStore';
+import { useProductCatalogStore } from '@/stores/useProductCatalogStore';
 import { isFirebaseConfigured } from '@/lib/firebase';
 import type { FarmActivityLog } from '@/types';
 
@@ -31,12 +32,18 @@ export function useFirestoreSync() {
   const setSprayLogs = useScheduleStore((s) => s.setSprayLogs);
   const setFertilizerLogs = useScheduleStore((s) => s.setFertilizerLogs);
   const setFarmActivityLogs = useScheduleStore((s) => s.setFarmActivityLogs);
+  const hydrateProductCatalog = useProductCatalogStore((s) => s.hydrate);
 
   useEffect(() => {
     isOnboardingComplete().then((done) => {
       if (!done) router.push('/onboarding');
     });
   }, [router]);
+
+  useEffect(() => {
+    if (!user || isDemo || !isFirebaseConfigured) return;
+    void hydrateProductCatalog();
+  }, [user, isDemo, hydrateProductCatalog]);
 
   useEffect(() => {
     if (!user || isDemo || !isFirebaseConfigured) return;

@@ -159,6 +159,15 @@ export async function saveFarmActivityLog(log: Omit<FarmActivityLog, 'id'>, id?:
   }
 }
 
+export async function deleteFarmActivityLog(id: string) {
+  if (!isFirebaseConfigured) return;
+  try {
+    await deleteDoc(doc(getFirebaseDb(), 'farmActivityLogs', id));
+  } catch (error) {
+    console.warn('[deleteFarmActivityLog] Firestore delete failed', error);
+  }
+}
+
 export async function getUserProfile(uid: string): Promise<UserProfile | null> {
   if (!isFirebaseConfigured) return null;
   const snap = await getDoc(doc(getFirebaseDb(), 'users', uid));

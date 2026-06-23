@@ -9,6 +9,8 @@ import {
   FertilizerSprayDetailIcon,
   FungicideDetailIcon,
   InfoIcon,
+  EditIcon,
+  DeleteIcon,
   InsecticideDetailIcon,
   MicronutrientDetailIcon,
   NotesDetailIcon,
@@ -19,6 +21,7 @@ import {
   WaterActivityIcon,
 } from '@/components/icons/AppIcons';
 import { Spacing } from '@/constants/theme';
+import type { MoonPhase } from '@/types';
 import type { ActivityDetail, ActivityDetailKey, ActivityVariant } from '@/utils/activity-display';
 import { getAnimatedCardIcon } from '@/components/icons/AnimatedActivityCardIcons';
 
@@ -59,6 +62,13 @@ const VARIANT_THEME: Record<
     chipBg: '#FFFFFF',
     chipText: '#374151',
   },
+  labour: {
+    accent: '#7C3AED',
+    tint: '#EDE9FE',
+    labelKey: 'home.activityGroups.labour',
+    chipBg: '#FFFFFF',
+    chipText: '#5B21B6',
+  },
 };
 
 const DETAIL_ICON: Record<ActivityDetailKey, (size: number) => ReactNode> = {
@@ -70,6 +80,11 @@ const DETAIL_ICON: Record<ActivityDetailKey, (size: number) => ReactNode> = {
   micronutrient_spray: (size) => <MicronutrientDetailIcon size={size} />,
   water_ph_balancer: (size) => <PhBalancerDetailIcon size={size} />,
   spreader_sticker: (size) => <SpreaderStickerDetailIcon size={size} />,
+  plain: (size) => <WaterActivityIcon size={size} color="#0284C7" />,
+  nutrient: (size) => <FertActivityIcon size={size} color="#0284C7" />,
+  nematicide_drench: (size) => <InsecticideDetailIcon size={size} />,
+  biological: (size) => <BactericideDetailIcon size={size} />,
+  moon_phase: (size) => <WaterActivityIcon size={size} color="#F59E0B" />,
   duration: (size) => <WaterActivityIcon size={size} color="#0284C7" />,
   product: (size) => <FertActivityIcon size={size} color="#B45309" />,
   notes: (size) => <NotesDetailIcon size={size} />,
@@ -80,8 +95,12 @@ export function getCardIconForDetail(key: ActivityDetailKey, size = 28): ReactNo
   return DETAIL_ICON[key](size);
 }
 
-export function getCardBadgeIcon(variant: ActivityVariant, size = 48): ReactNode {
-  const animated = getAnimatedCardIcon(variant, size);
+export function getCardBadgeIcon(
+  variant: ActivityVariant,
+  size = 48,
+  moonPhase?: MoonPhase,
+): ReactNode {
+  const animated = getAnimatedCardIcon(variant, size, moonPhase);
   if (animated) return animated;
   if (variant === 'fertilizer') return <FertActivityIcon size={size * 0.65} color="#B45309" />;
   return <SprayActivityIcon size={size * 0.65} color="#6B7280" />;
@@ -93,21 +112,24 @@ type Props = {
   details: ActivityDetail[];
   cost?: number;
   variant?: ActivityVariant;
+  moonPhase?: MoonPhase;
+  onEdit?: () => void;
+  onDelete?: () => void;
 };
 
 function DetailRow({
   detail,
   theme,
-  onInfoPress,
 }: {
   detail: ActivityDetail;
   theme: (typeof VARIANT_THEME)[ActivityVariant];
-  onInfoPress: (label: string, value: string) => void;
 }) {
-  const chips = detail.value.includes(',')
-    ? detail.value.split(',').map((s) => s.trim()).filter(Boolean)
-    : [detail.value];
-  const isLong = detail.value.length > 36 || chips.length > 2;
+  const displayValue = detail.cardValue ?? detail.value;
+  const chips = displayValue.includes('\n')
+    ? displayValue.split('\n').map((s) => s.trim()).filter(Boolean)
+    : displayValue.includes(',')
+      ? displayValue.split(',').map((s) => s.trim()).filter(Boolean)
+      : [displayValue];
 
   return (
     <View style={styles.detailBlock}>
@@ -116,16 +138,6 @@ function DetailRow({
           {DETAIL_ICON[detail.key](18)}
         </View>
         <Text style={styles.detailLabel}>{detail.label}</Text>
-        {isLong ? (
-          <Pressable
-            onPress={() => onInfoPress(detail.label, detail.value)}
-            hitSlop={8}
-            style={styles.rowInfoBtn}
-            accessibilityRole="button"
-            accessibilityLabel="View full text">
-            <InfoIcon size={16} color={theme.accent} strokeWidth={1.8} />
-          </Pressable>
-        ) : null}
       </View>
       <View style={styles.chipsRow}>
         {chips.map((chip) => (
@@ -146,27 +158,16 @@ export function ActivityCard({
   details,
   cost,
   variant = 'cultural',
+  moonPhase,
+  onEdit,
+  onDelete,
 }: Props) {
   const { t } = useTranslation();
   const theme = VARIANT_THEME[variant];
-  const badgeIcon = icon ?? getCardBadgeIcon(variant);
+  const badgeIcon = icon ?? getCardBadgeIcon(variant, 48, moonPhase);
   const [showFullText, setShowFullText] = useState(false);
-  const [expandedSection, setExpandedSection] = useState<{ label: string; value: string } | null>(
-    null,
-  );
 
-  const openFullCard = () => {
-    setExpandedSection(null);
-    setShowFullText(true);
-  };
-
-  const openSection = (label: string, value: string) => {
-    setExpandedSection({ label, value });
-    setShowFullText(true);
-  };
-
-  const modalTitle = expandedSection?.label ?? t('home.viewFullActivity');
-  const modalBody = expandedSection?.value ?? buildFullBody(title, details, cost, t);
+  const modalBody = buildFullBody(title, details, cost, t);
 
   return (
     <>
@@ -178,46 +179,54 @@ export function ActivityCard({
               <View style={styles.iconInner}>{badgeIcon}</View>
             </View>
             <View style={styles.headerText}>
-              <View style={[styles.typePill, { backgroundColor: theme.tint }]}>
-                <Text style={[styles.typePillText, { color: theme.accent }]}>
-                  {t(theme.labelKey)}
-                </Text>
+              <View style={styles.headerTop}>
+                <View style={[styles.typePill, { backgroundColor: theme.tint }]}>
+                  <Text style={[styles.typePillText, { color: theme.accent }]}>
+                    {t(theme.labelKey)}
+                  </Text>
+                </View>
+                <View style={styles.cardActions}>
+                  {onEdit ? (
+                    <Pressable
+                      onPress={onEdit}
+                      hitSlop={8}
+                      style={[styles.iconActionBtn, { backgroundColor: theme.tint }]}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('schedule.edit')}>
+                      <EditIcon size={18} color={theme.accent} strokeWidth={2} />
+                    </Pressable>
+                  ) : null}
+                  {onDelete ? (
+                    <Pressable
+                      onPress={onDelete}
+                      hitSlop={8}
+                      style={styles.iconActionBtnDanger}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('schedule.delete')}>
+                      <DeleteIcon size={18} color="#DC2626" strokeWidth={2} />
+                    </Pressable>
+                  ) : null}
+                  <Pressable
+                    onPress={() => setShowFullText(true)}
+                    hitSlop={8}
+                    style={[styles.iconActionBtn, { backgroundColor: theme.tint }]}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('home.viewFullActivity')}>
+                    <InfoIcon size={18} color={theme.accent} strokeWidth={2} />
+                  </Pressable>
+                </View>
               </View>
-              <View style={styles.titleRow}>
-                <Text style={styles.title} numberOfLines={2}>
-                  {title}
-                </Text>
-                <Pressable
-                  onPress={openFullCard}
-                  hitSlop={8}
-                  style={styles.titleInfoBtn}
-                  accessibilityRole="button"
-                  accessibilityLabel={t('home.viewFullActivity')}>
-                  <InfoIcon size={18} color={theme.accent} strokeWidth={2} />
-                </Pressable>
-              </View>
+              <Text style={styles.title} numberOfLines={2}>
+                {title}
+              </Text>
             </View>
           </View>
 
           {details.length > 0 ? (
             <View style={[styles.details, { backgroundColor: theme.tint }]}>
               {details.map((detail, index) => (
-                <DetailRow
-                  key={`${detail.key}-${index}`}
-                  detail={detail}
-                  theme={theme}
-                  onInfoPress={openSection}
-                />
+                <DetailRow key={`${detail.key}-${index}`} detail={detail} theme={theme} />
               ))}
-            </View>
-          ) : null}
-
-          {cost != null && cost > 0 ? (
-            <View style={styles.footer}>
-              <View style={[styles.costPill, { backgroundColor: theme.accent }]}>
-                <Text style={styles.costLabel}>{t('home.costLabel')}</Text>
-                <Text style={styles.costValue}>₹ {cost}</Text>
-              </View>
             </View>
           ) : null}
         </View>
@@ -232,7 +241,7 @@ export function ActivityCard({
           <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
             <View style={[styles.modalAccent, { backgroundColor: theme.accent }]} />
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{modalTitle}</Text>
+              <Text style={styles.modalTitle}>{t('home.viewFullActivity')}</Text>
               <Pressable onPress={() => setShowFullText(false)} hitSlop={8}>
                 <Text style={[styles.modalClose, { color: theme.accent }]}>{t('home.close')}</Text>
               </Pressable>
@@ -258,7 +267,7 @@ function buildFullBody(
     lines.push('', `${detail.label}:`, detail.value);
   }
   if (cost != null && cost > 0) {
-    lines.push('', `${t('home.costLabel')}: ₹ ${cost}`);
+    lines.push('', `${t('schedule.cost')}: ₹${cost.toLocaleString('en-IN')}`);
   }
   return lines.join('\n');
 }
@@ -298,20 +307,40 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headerText: { flex: 1, gap: 6 },
-  titleRow: {
+  headerTop: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 6,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
   },
   typePill: {
-    alignSelf: 'flex-start',
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 10,
   },
   typePillText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.4, textTransform: 'uppercase' },
-  title: { flex: 1, fontSize: 16, fontWeight: '700', color: TEXT, lineHeight: 22 },
-  titleInfoBtn: { paddingTop: 2 },
+  cardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 0,
+  },
+  iconActionBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconActionBtnDanger: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FEF2F2',
+  },
+  title: { fontSize: 16, fontWeight: '700', color: TEXT, lineHeight: 22 },
   details: {
     borderRadius: 12,
     padding: Spacing.two,
@@ -336,7 +365,6 @@ const styles = StyleSheet.create({
     color: TEXT,
     flex: 1,
   },
-  rowInfoBtn: { padding: 2 },
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingLeft: 36 },
   chip: {
     borderRadius: 16,
@@ -350,21 +378,6 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   chipText: { fontSize: 12, fontWeight: '600', lineHeight: 16 },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    paddingTop: Spacing.one,
-  },
-  costPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  costLabel: { fontSize: 11, fontWeight: '600', color: 'rgba(255,255,255,0.85)' },
-  costValue: { fontSize: 14, fontWeight: '800', color: '#FFFFFF' },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.45)',

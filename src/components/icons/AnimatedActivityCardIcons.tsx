@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated, {
   Easing,
@@ -11,6 +11,7 @@ import Animated, {
 import Svg, { Circle, Ellipse, G, Path, Rect } from 'react-native-svg';
 
 import type { ActivityVariant } from '@/utils/activity-display';
+import type { MoonPhase } from '@/types';
 
 type IconProps = { size?: number };
 
@@ -217,7 +218,17 @@ export function AnimatedIrrigationCardIcon({ size = 48 }: IconProps) {
   );
 }
 
-export function getAnimatedCardIcon(variant: ActivityVariant, size = 48) {
+export function getAnimatedCardIcon(
+  variant: ActivityVariant,
+  size = 48,
+  moonPhase?: MoonPhase,
+): ReactNode {
+  if (variant === 'irrigation' && moonPhase === 'full_moon') {
+    return <AnimatedFullMoonCardIcon size={size} />;
+  }
+  if (variant === 'irrigation' && moonPhase === 'half_moon') {
+    return <AnimatedHalfMoonCardIcon size={size} />;
+  }
   switch (variant) {
     case 'spray':
       return <AnimatedSprayCardIcon size={size} />;
@@ -226,6 +237,77 @@ export function getAnimatedCardIcon(variant: ActivityVariant, size = 48) {
     default:
       return null;
   }
+}
+
+/** Glowing full moon for biological irrigation on full moon */
+export function AnimatedFullMoonCardIcon({ size = 48 }: IconProps) {
+  const glow = useSharedValue(0);
+  useEffect(() => {
+    glow.value = withRepeat(
+      withTiming(1, { duration: 1800, easing: Easing.inOut(Easing.sin) }),
+      -1,
+      true,
+    );
+  }, [glow]);
+
+  const glowProps = useAnimatedProps(() => ({
+    opacity: 0.25 + glow.value * 0.45,
+    r: 13 + glow.value * 2,
+  }));
+
+  const moonProps = useAnimatedProps(() => ({
+    opacity: 0.88 + glow.value * 0.12,
+  }));
+
+  return (
+    <View style={[styles.wrap, { width: size, height: size }]}>
+      <Svg width={size} height={size} viewBox="0 0 48 48" fill="none">
+        <Rect x={0} y={0} width={48} height={48} fill="#0F172A" rx={8} />
+        <AnimatedCircle animatedProps={glowProps} cx={24} cy={24} fill="#FDE68A" />
+        <AnimatedCircle animatedProps={moonProps} cx={24} cy={24} r={11} fill="#FEF08A" stroke="#F59E0B" strokeWidth={1.2} />
+        <Circle cx={20} cy={20} r={1.5} fill="#D97706" opacity={0.35} />
+        <Circle cx={27} cy={22} r={1.2} fill="#D97706" opacity={0.3} />
+        <Circle cx={23} cy={27} r={1.8} fill="#D97706" opacity={0.25} />
+        <Circle cx={8} cy={10} r={0.8} fill="#FFFFFF" opacity={0.7} />
+        <Circle cx={38} cy={14} r={0.6} fill="#FFFFFF" opacity={0.5} />
+        <Circle cx={34} cy={36} r={0.7} fill="#FFFFFF" opacity={0.45} />
+      </Svg>
+    </View>
+  );
+}
+
+/** Crescent half moon for biological irrigation on half moon */
+export function AnimatedHalfMoonCardIcon({ size = 48 }: IconProps) {
+  const shimmer = useSharedValue(0);
+  useEffect(() => {
+    shimmer.value = withRepeat(
+      withTiming(1, { duration: 1600, easing: Easing.inOut(Easing.ease) }),
+      -1,
+      true,
+    );
+  }, [shimmer]);
+
+  const shimmerProps = useAnimatedProps(() => ({
+    opacity: 0.35 + shimmer.value * 0.5,
+  }));
+
+  return (
+    <View style={[styles.wrap, { width: size, height: size }]}>
+      <Svg width={size} height={size} viewBox="0 0 48 48" fill="none">
+        <Rect x={0} y={0} width={48} height={48} fill="#0F172A" rx={8} />
+        <AnimatedCircle animatedProps={shimmerProps} cx={26} cy={24} r={12} fill="#E2E8F0" opacity={0.2} />
+        <Path
+          d="M28 12a12 12 0 1 0 0 24a9 9 0 0 1 0-24Z"
+          fill="#FEF08A"
+          stroke="#F59E0B"
+          strokeWidth={1.2}
+        />
+        <Circle cx={8} cy={12} r={0.7} fill="#FFFFFF" opacity={0.6} />
+        <Circle cx={40} cy={18} r={0.5} fill="#FFFFFF" opacity={0.45} />
+        <Circle cx={36} cy={34} r={0.6} fill="#FFFFFF" opacity={0.4} />
+      </Svg>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({

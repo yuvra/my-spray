@@ -76,6 +76,9 @@ export type ActivityKind = 'spray' | 'water' | 'fertigation';
 export type FarmActivityType =
   | 'irrigation_nutrient'
   | 'irrigation_plain'
+  | 'irrigation'
+  | 'irrigation_nematicide_drench'
+  | 'irrigation_biological'
   | 'spray'
   | 'fungicide'
   | 'insecticide'
@@ -89,7 +92,8 @@ export type FarmActivityType =
   | 'stem_pasting'
   | 'weed_removing'
   | 'ethrel_defoliation'
-  | 'stem_wash';
+  | 'stem_wash'
+  | 'worker_spend';
 
 export type SpraySubType =
   | 'fungicide'
@@ -101,7 +105,45 @@ export type SpraySubType =
   | 'water_ph_balancer'
   | 'spreader_sticker';
 
-export type ActivityGroupId = 'spray' | 'irrigation' | 'soil' | 'other';
+export type IrrigationSubType = 'plain' | 'nutrient' | 'nematicide_drench' | 'biological';
+
+export type MoonPhase = 'full_moon' | 'half_moon';
+
+export type DoseUnit = 'g' | 'ml' | 'kg';
+
+export interface WorkerRecord {
+  id: string;
+  name: string;
+}
+
+export interface ProductInventoryItem {
+  id: string;
+  name: string;
+  /** spray subtype, irrigation subtype, or soil group */
+  group: string;
+  /** Technical / active ingredient name */
+  chemical?: string;
+  dosePerLiter?: number;
+  doseUnit?: DoseUnit;
+  unitPrice?: number;
+  priceUnit?: string;
+  stockQuantity?: number;
+}
+
+export interface ProductLineItem {
+  name: string;
+  /** spray subtype, irrigation subtype, or soil group */
+  group: string;
+  chemical?: string;
+  dosePerLiter?: number;
+  doseUnit?: DoseUnit;
+  waterLiters?: number;
+  unitPrice?: number;
+  priceUnit?: string;
+  totalCost?: number;
+}
+
+export type ActivityGroupId = 'spray' | 'irrigation' | 'soil' | 'other' | 'labour';
 
 export interface FarmActivityLog {
   id: string;
@@ -121,6 +163,13 @@ export interface FarmActivityLog {
   bactericideProducts?: string[];
   waterPhBalancerProducts?: string[];
   spreaderStickerProducts?: string[];
+  irrigationSubTypes?: IrrigationSubType[];
+  nutrientProducts?: string[];
+  nematicideProducts?: string[];
+  biologicalProducts?: string[];
+  moonPhase?: MoonPhase;
+  productLines?: ProductLineItem[];
+  sprayWaterLiters?: number;
   /** @deprecated use fungicideProducts */
   fungicideProduct?: string;
   /** @deprecated use insecticideProducts */
@@ -134,6 +183,12 @@ export interface FarmActivityLog {
   durationHours?: number;
   durationMinutes?: number;
   notes?: string;
+  /** Custom work description for other farm work */
+  workName?: string;
+  /** Worker paid for this activity */
+  workerName?: string;
+  /** Amount paid to worker (₹) */
+  workerSpend?: number;
   createdAt: string;
 }
 

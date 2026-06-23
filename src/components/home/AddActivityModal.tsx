@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react';
-import { useEffect, useState } from 'react';
+import type { Dispatch, ReactNode } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Modal,
   Pressable,
@@ -14,28 +14,43 @@ import { useTranslation } from 'react-i18next';
 
 import { CalendarIcon, CheckCircleIcon } from '@/components/icons/AppIcons';
 import { MonthCalendar } from '@/components/home/MonthCalendar';
+import { WorkerSpendFields, resolveWorkerName } from '@/components/home/WorkerSpendFields';
+import { ProductUsagePicker } from '@/components/home/ProductUsagePicker';
 import {
   ACTIVITY_GROUPS,
   BACTERICIDE_PRODUCTS,
+  BIOLOGICAL_AGENT_PRODUCTS,
   FERTILIZER_SPRAY_PRODUCTS,
   FUNGICIDE_PRODUCTS,
   INSECTICIDE_PRODUCTS,
   MICRONUTRIENT_PRODUCTS,
+  NEMATICIDE_PRODUCTS,
+  NUTRIENT_IRRIGATION_PRODUCTS,
   PGR_PRODUCTS,
   SPREADER_STICKER_PRODUCTS,
   WATER_PH_BALANCER_PRODUCTS,
   getActivityLabelKey,
+  hasIrrigationDetails,
   hasSprayDetails,
   isCulturalActivity,
+  isWorkerSpendActivity,
   isFertilizerActivity,
-  isIrrigationActivity,
+  isIrrigationSubType,
   isSpraySubType,
   resolveProducts,
   toggleProductInList,
 } from '@/constants/farm-activities';
 import { Spacing } from '@/constants/theme';
+import { useProductCatalogStore } from '@/stores/useProductCatalogStore';
+import { useProductInventoryStore } from '@/stores/useProductInventoryStore';
+import { useWorkerStore } from '@/stores/useWorkerStore';
 import { formatDateKey, formatDisplayDate } from '@/utils/farm-logs';
-import type { Farm, FarmActivityLog, FarmActivityType, SpraySubType } from '@/types';
+import { snapshotFromActivityLog } from '@/utils/activity-form';
+import type { Farm, FarmActivityLog, FarmActivityType, IrrigationSubType, MoonPhase, ProductLineItem, SpraySubType } from '@/types';
+import {
+  draftToLineItem,
+  sumProductLineCosts,
+} from '@/utils/product-usage';
 
 const GREEN = '#3D6B35';
 const SECTION_BG = '#E8F5E9';
@@ -50,7 +65,24 @@ const FERTILIZER_SPRAY_ACCENT = '#059669';
 const BACTERICIDE_ACCENT = '#0D9488';
 const PH_BALANCER_ACCENT = '#0891B2';
 const SPREADER_STICKER_ACCENT = '#DB2777';
+const NUTRIENT_IRRIGATION_ACCENT = '#0284C7';
+const NEMATICIDE_ACCENT = '#7C2D12';
+const BIOLOGICAL_ACCENT = '#6366F1';
 const BORDER = '#D1D5DB';
+
+function withOther(names: string[]): string[] {
+  return names.includes('Other') ? names : [...names, 'Other'];
+}
+
+function resolveGroupProducts(
+  inventoryNames: string[],
+  catalogNames: string[],
+  staticList: readonly string[],
+): string[] {
+  if (inventoryNames.length) return withOther(inventoryNames);
+  const base = catalogNames.length ? catalogNames : [...staticList];
+  return withOther(base);
+}
 
 type Props = {
   visible: boolean;
@@ -60,7 +92,11 @@ type Props = {
   defaultDate: Date;
   activeDates: Set<string>;
   userId: string;
-  onSave: (data: Omit<FarmActivityLog, 'id' | 'createdAt'>) => Promise<void>;
+  editLog?: FarmActivityLog | null;
+  onSave: (
+    data: Omit<FarmActivityLog, 'id' | 'createdAt'>,
+    options?: { id?: string; createdAt?: string },
+  ) => Promise<void>;
 };
 
 type SectionId = 'date' | 'plot' | 'activity' | 'details' | 'notes' | 'cost' | 'photo';
@@ -134,68 +170,6 @@ function FieldInput({
   );
 }
 
-function MultiProductPicker({
-  label,
-  hint,
-  accentColor,
-  products,
-  selected,
-  onToggle,
-  customValue,
-  onCustomChange,
-  customPlaceholder,
-}: {
-  label: string;
-  hint: string;
-  accentColor: string;
-  products: readonly string[];
-  selected: string[];
-  onToggle: (product: string) => void;
-  customValue: string;
-  onCustomChange: (value: string) => void;
-  customPlaceholder: string;
-}) {
-  const resolvedCount = resolveProducts(selected, customValue).length;
-
-  return (
-    <View style={[styles.detailBlock, { borderLeftColor: accentColor }]}>
-      <View style={styles.detailBlockHeader}>
-        <Text style={styles.productSectionLabel}>{label}</Text>
-        {resolvedCount > 0 ? (
-          <View style={[styles.countBadge, { backgroundColor: accentColor }]}>
-            <Text style={styles.countBadgeText}>{resolvedCount}</Text>
-          </View>
-        ) : null}
-      </View>
-      <Text style={styles.productHint}>{hint}</Text>
-      <View style={styles.productList}>
-        {products.map((name) => {
-          const isSelected = selected.includes(name);
-          return (
-            <Pressable
-              key={name}
-              onPress={() => onToggle(name)}
-              style={[
-                styles.productChip,
-                isSelected && [styles.productChipSelected, { borderColor: accentColor, backgroundColor: accentColor }],
-              ]}>
-              {isSelected ? <Text style={styles.chipCheck}>✓</Text> : null}
-              <Text
-                style={[styles.productChipText, isSelected && styles.productChipTextSelected]}
-                numberOfLines={2}>
-                {name}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-      {selected.includes('Other') && (
-        <FieldInput value={customValue} onChangeText={onCustomChange} placeholder={customPlaceholder} />
-      )}
-    </View>
-  );
-}
-
 function ActivityGroupSection({
   title,
   hint,
@@ -224,6 +198,7 @@ export function AddActivityModal({
   defaultDate,
   activeDates,
   userId,
+  editLog,
   onSave,
 }: Props) {
   const { t } = useTranslation();
@@ -232,6 +207,7 @@ export function AddActivityModal({
   const [farmId, setFarmId] = useState(defaultFarmId ?? farms[0]?.id ?? '');
   const [singleActivity, setSingleActivity] = useState<FarmActivityType | null>(null);
   const [spraySubTypes, setSpraySubTypes] = useState<SpraySubType[]>([]);
+  const [irrigationSubTypes, setIrrigationSubTypes] = useState<IrrigationSubType[]>([]);
   const [cost, setCost] = useState('');
   const [showCalendar, setShowCalendar] = useState(false);
   const [month, setMonth] = useState(() => new Date());
@@ -254,16 +230,83 @@ export function AddActivityModal({
   const [customWaterPhBalancer, setCustomWaterPhBalancer] = useState('');
   const [spreaderStickerProducts, setSpreaderStickerProducts] = useState<string[]>([]);
   const [customSpreaderSticker, setCustomSpreaderSticker] = useState('');
+  const [nutrientProducts, setNutrientProducts] = useState<string[]>([]);
+  const [customNutrient, setCustomNutrient] = useState('');
+  const [nematicideProducts, setNematicideProducts] = useState<string[]>([]);
+  const [customNematicide, setCustomNematicide] = useState('');
+  const [biologicalProducts, setBiologicalProducts] = useState<string[]>([]);
+  const [customBiological, setCustomBiological] = useState('');
+  const [moonPhase, setMoonPhase] = useState<MoonPhase | null>(null);
   const [quantity, setQuantity] = useState('');
   const [unit, setUnit] = useState('kg');
   const [waterHours, setWaterHours] = useState('1');
   const [waterMinutes, setWaterMinutes] = useState('0');
+  const [sprayWaterLiters, setSprayWaterLiters] = useState('');
   const [notes, setNotes] = useState('');
+  const [workName, setWorkName] = useState('');
+  const [selectedWorker, setSelectedWorker] = useState('');
+  const [customWorker, setCustomWorker] = useState('');
+  const [workerSpend, setWorkerSpend] = useState('');
   const [expanded, setExpanded] = useState(DEFAULT_EXPANDED);
+
+  const catalogFungicides = useProductCatalogStore((s) => s.fungicides);
+  const catalogInsecticides = useProductCatalogStore((s) => s.insecticides);
+  const hydrateProductCatalog = useProductCatalogStore((s) => s.hydrate);
+  const inventoryItems = useProductInventoryStore((s) => s.items);
+  const getNamesForGroup = useProductInventoryStore((s) => s.getNamesForGroup);
+  const getUsageDraft = useProductInventoryStore((s) => s.getUsageDraft);
+  const ensureWorker = useWorkerStore((s) => s.ensureWorker);
+  const seedDefaultWorkers = useWorkerStore((s) => s.seedDefaultWorkers);
+
+  const fungicideProductList = useMemo(
+    () => resolveGroupProducts(getNamesForGroup('fungicide'), catalogFungicides, FUNGICIDE_PRODUCTS),
+    [inventoryItems, catalogFungicides, getNamesForGroup],
+  );
+  const insecticideProductList = useMemo(
+    () => resolveGroupProducts(getNamesForGroup('insecticide'), catalogInsecticides, INSECTICIDE_PRODUCTS),
+    [inventoryItems, catalogInsecticides, getNamesForGroup],
+  );
+  const bactericideProductList = useMemo(
+    () => resolveGroupProducts(getNamesForGroup('bactericide'), [], BACTERICIDE_PRODUCTS),
+    [inventoryItems, getNamesForGroup],
+  );
+  const pgrProductList = useMemo(
+    () => resolveGroupProducts(getNamesForGroup('pgr'), [], PGR_PRODUCTS),
+    [inventoryItems, getNamesForGroup],
+  );
+  const fertilizerSprayProductList = useMemo(
+    () => resolveGroupProducts(getNamesForGroup('fertilizer_spray'), [], FERTILIZER_SPRAY_PRODUCTS),
+    [inventoryItems, getNamesForGroup],
+  );
+  const micronutrientProductList = useMemo(
+    () => resolveGroupProducts(getNamesForGroup('micronutrient_spray'), [], MICRONUTRIENT_PRODUCTS),
+    [inventoryItems, getNamesForGroup],
+  );
+  const waterPhBalancerProductList = useMemo(
+    () => resolveGroupProducts(getNamesForGroup('water_ph_balancer'), [], WATER_PH_BALANCER_PRODUCTS),
+    [inventoryItems, getNamesForGroup],
+  );
+  const spreaderStickerProductList = useMemo(
+    () => resolveGroupProducts(getNamesForGroup('spreader_sticker'), [], SPREADER_STICKER_PRODUCTS),
+    [inventoryItems, getNamesForGroup],
+  );
+  const nutrientProductList = useMemo(
+    () => resolveGroupProducts(getNamesForGroup('nutrient'), [], NUTRIENT_IRRIGATION_PRODUCTS),
+    [inventoryItems, getNamesForGroup],
+  );
+  const nematicideProductList = useMemo(
+    () => resolveGroupProducts(getNamesForGroup('nematicide_drench'), [], NEMATICIDE_PRODUCTS),
+    [inventoryItems, getNamesForGroup],
+  );
+  const biologicalProductList = useMemo(
+    () => resolveGroupProducts(getNamesForGroup('biological'), [], BIOLOGICAL_AGENT_PRODUCTS),
+    [inventoryItems, getNamesForGroup],
+  );
 
   const selectedFarm = farms.find((f) => f.id === farmId) ?? farms[0];
   const dateKey = formatDateKey(date);
   const showSprayDetails = hasSprayDetails(spraySubTypes);
+  const showIrrigationDetails = hasIrrigationDetails(irrigationSubTypes);
 
   const resolvedFungicides = resolveProducts(fungicideProducts, customFungicide);
   const resolvedInsecticides = resolveProducts(insecticideProducts, customInsecticide);
@@ -273,77 +316,98 @@ export function AddActivityModal({
   const resolvedBactericides = resolveProducts(bactericideProducts, customBactericide);
   const resolvedPhBalancers = resolveProducts(waterPhBalancerProducts, customWaterPhBalancer);
   const resolvedSpreaderStickers = resolveProducts(spreaderStickerProducts, customSpreaderSticker);
+  const resolvedNutrients = resolveProducts(nutrientProducts, customNutrient);
+  const resolvedNematicides = resolveProducts(nematicideProducts, customNematicide);
+  const resolvedBiologicals = resolveProducts(biologicalProducts, customBiological);
 
-  const toggleFungicide = (product: string) => {
-    setFungicideProducts((prev) => {
-      const next = toggleProductInList(prev, product);
-      if (!next.includes('Other')) setCustomFungicide('');
-      return next;
-    });
+  const makeProductToggle =
+    (setter: Dispatch<React.SetStateAction<string[]>>, clearCustom: () => void) =>
+    (product: string) => {
+      setter((prev) => {
+        const next = toggleProductInList(prev, product);
+        if (!next.includes('Other')) clearCustom();
+        return next;
+      });
+    };
+
+  const collectProductLines = (group: string, names: string[]): ProductLineItem[] => {
+    const waterNum = Number(sprayWaterLiters) || 0;
+    return names
+      .map((name) => {
+        const draft = getUsageDraft(group, name);
+        return draftToLineItem(group, name, draft, waterNum);
+      })
+      .filter((line): line is ProductLineItem => line != null);
   };
 
-  const toggleInsecticide = (product: string) => {
-    setInsecticideProducts((prev) => {
-      const next = toggleProductInList(prev, product);
-      if (!next.includes('Other')) setCustomInsecticide('');
-      return next;
-    });
-  };
-
-  const toggleMicronutrient = (product: string) => {
-    setMicronutrientProducts((prev) => {
-      const next = toggleProductInList(prev, product);
-      if (!next.includes('Other')) setCustomMicronutrient('');
-      return next;
-    });
-  };
-
-  const togglePgr = (product: string) => {
-    setPgrProducts((prev) => {
-      const next = toggleProductInList(prev, product);
-      if (!next.includes('Other')) setCustomPgr('');
-      return next;
-    });
-  };
-
-  const toggleFertilizerSpray = (product: string) => {
-    setFertilizerSprayProducts((prev) => {
-      const next = toggleProductInList(prev, product);
-      if (!next.includes('Other')) setCustomFertilizerSpray('');
-      return next;
-    });
-  };
-
-  const toggleBactericide = (product: string) => {
-    setBactericideProducts((prev) => {
-      const next = toggleProductInList(prev, product);
-      if (!next.includes('Other')) setCustomBactericide('');
-      return next;
-    });
-  };
-
-  const toggleWaterPhBalancer = (product: string) => {
-    setWaterPhBalancerProducts((prev) => {
-      const next = toggleProductInList(prev, product);
-      if (!next.includes('Other')) setCustomWaterPhBalancer('');
-      return next;
-    });
-  };
-
-  const toggleSpreaderSticker = (product: string) => {
-    setSpreaderStickerProducts((prev) => {
-      const next = toggleProductInList(prev, product);
-      if (!next.includes('Other')) setCustomSpreaderSticker('');
-      return next;
-    });
-  };
+  const toggleFungicide = makeProductToggle(setFungicideProducts, () => setCustomFungicide(''));
+  const toggleInsecticide = makeProductToggle(setInsecticideProducts, () => setCustomInsecticide(''));
+  const toggleMicronutrient = makeProductToggle(setMicronutrientProducts, () => setCustomMicronutrient(''));
+  const togglePgr = makeProductToggle(setPgrProducts, () => setCustomPgr(''));
+  const toggleFertilizerSpray = makeProductToggle(setFertilizerSprayProducts, () => setCustomFertilizerSpray(''));
+  const toggleBactericide = makeProductToggle(setBactericideProducts, () => setCustomBactericide(''));
+  const toggleWaterPhBalancer = makeProductToggle(setWaterPhBalancerProducts, () => setCustomWaterPhBalancer(''));
+  const toggleSpreaderSticker = makeProductToggle(setSpreaderStickerProducts, () => setCustomSpreaderSticker(''));
+  const toggleNutrient = makeProductToggle(setNutrientProducts, () => setCustomNutrient(''));
+  const toggleNematicide = makeProductToggle(setNematicideProducts, () => setCustomNematicide(''));
+  const toggleBiological = makeProductToggle(setBiologicalProducts, () => setCustomBiological(''));
 
   useEffect(() => {
     if (!visible) return;
+    void hydrateProductCatalog();
+    seedDefaultWorkers();
+
+    if (editLog) {
+      const snap = snapshotFromActivityLog(editLog);
+      setDate(snap.date);
+      setFarmId(snap.farmId || defaultFarmId || farms[0]?.id || '');
+      setSingleActivity(snap.singleActivity);
+      setSpraySubTypes(snap.spraySubTypes);
+      setIrrigationSubTypes(snap.irrigationSubTypes);
+      setCost(snap.cost);
+      setProductName(snap.productName);
+      setFungicideProducts(snap.fungicideProducts);
+      setCustomFungicide('');
+      setInsecticideProducts(snap.insecticideProducts);
+      setCustomInsecticide('');
+      setMicronutrientProducts(snap.micronutrientProducts);
+      setCustomMicronutrient('');
+      setPgrProducts(snap.pgrProducts);
+      setCustomPgr('');
+      setFertilizerSprayProducts(snap.fertilizerSprayProducts);
+      setCustomFertilizerSpray('');
+      setBactericideProducts(snap.bactericideProducts);
+      setCustomBactericide('');
+      setWaterPhBalancerProducts(snap.waterPhBalancerProducts);
+      setCustomWaterPhBalancer('');
+      setSpreaderStickerProducts(snap.spreaderStickerProducts);
+      setCustomSpreaderSticker('');
+      setNutrientProducts(snap.nutrientProducts);
+      setCustomNutrient('');
+      setNematicideProducts(snap.nematicideProducts);
+      setCustomNematicide('');
+      setBiologicalProducts(snap.biologicalProducts);
+      setCustomBiological('');
+      setMoonPhase(snap.moonPhase);
+      setQuantity(snap.quantity);
+      setUnit(snap.unit);
+      setWaterHours(snap.waterHours);
+      setWaterMinutes(snap.waterMinutes);
+      setSprayWaterLiters(snap.sprayWaterLiters);
+      setNotes(snap.notes);
+      setWorkName(snap.workName);
+      setSelectedWorker(snap.selectedWorker);
+      setCustomWorker(snap.customWorker);
+      setWorkerSpend(snap.workerSpend);
+      setExpanded({ ...DEFAULT_EXPANDED, details: true });
+      return;
+    }
+
     setDate(defaultDate);
     setFarmId(defaultFarmId ?? farms[0]?.id ?? '');
     setSingleActivity(null);
     setSpraySubTypes([]);
+    setIrrigationSubTypes([]);
     setCost('');
     setProductName('');
     setFungicideProducts([]);
@@ -362,13 +426,25 @@ export function AddActivityModal({
     setCustomWaterPhBalancer('');
     setSpreaderStickerProducts([]);
     setCustomSpreaderSticker('');
+    setNutrientProducts([]);
+    setCustomNutrient('');
+    setNematicideProducts([]);
+    setCustomNematicide('');
+    setBiologicalProducts([]);
+    setCustomBiological('');
+    setMoonPhase(null);
     setQuantity('');
     setUnit('kg');
     setWaterHours('1');
     setWaterMinutes('0');
+    setSprayWaterLiters('');
     setNotes('');
+    setWorkName('');
+    setSelectedWorker('');
+    setCustomWorker('');
+    setWorkerSpend('');
     setExpanded({ ...DEFAULT_EXPANDED });
-  }, [visible, defaultDate, defaultFarmId, farms]);
+  }, [visible, defaultDate, defaultFarmId, farms, hydrateProductCatalog, editLog, seedDefaultWorkers]);
 
   const toggleSection = (id: SectionId) => {
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -376,6 +452,7 @@ export function AddActivityModal({
 
   const toggleSpraySubType = (type: SpraySubType) => {
     setSingleActivity(null);
+    setIrrigationSubTypes([]);
     setSpraySubTypes((prev) => {
       const next = prev.includes(type) ? prev.filter((item) => item !== type) : [...prev, type];
       return next;
@@ -383,8 +460,23 @@ export function AddActivityModal({
     setExpanded((prev) => ({ ...prev, details: true }));
   };
 
+  const toggleIrrigationSubType = (type: IrrigationSubType) => {
+    setSingleActivity(null);
+    setSpraySubTypes([]);
+    setIrrigationSubTypes((prev) => {
+      const next = prev.includes(type) ? prev.filter((item) => item !== type) : [...prev, type];
+      return next;
+    });
+    if (type !== 'biological') {
+      setMoonPhase(null);
+    }
+    setExpanded((prev) => ({ ...prev, details: true }));
+  };
+
   const selectSingleActivity = (type: FarmActivityType) => {
     setSpraySubTypes([]);
+    setIrrigationSubTypes([]);
+    setMoonPhase(null);
     setSingleActivity(type);
     setExpanded((prev) => ({ ...prev, details: true }));
   };
@@ -392,6 +484,9 @@ export function AddActivityModal({
   const activitySummary = (() => {
     if (spraySubTypes.length > 0) {
       return spraySubTypes.map((st) => t(`home.spraySubTypes.${st}`)).join(', ');
+    }
+    if (irrigationSubTypes.length > 0) {
+      return irrigationSubTypes.map((st) => t(`home.irrigationSubTypes.${st}`)).join(', ');
     }
     if (singleActivity) {
       return t(`home.activityTypes.${singleActivity}`);
@@ -401,10 +496,12 @@ export function AddActivityModal({
 
   const detailsLabel = showSprayDetails
     ? t('home.sprayDetails')
-    : singleActivity && isIrrigationActivity(singleActivity)
-      ? t('home.waterDuration')
+    : showIrrigationDetails
+      ? t('home.irrigationDetails')
       : singleActivity && isFertilizerActivity(singleActivity)
         ? t('schedule.product')
+      : singleActivity && isWorkerSpendActivity(singleActivity)
+        ? t('home.workerSpendDetails')
         : t('home.activityDetails');
 
   const detailsSummary = (() => {
@@ -422,14 +519,32 @@ export function AddActivityModal({
         .filter(Boolean)
         .join(' · ');
     }
-    if (singleActivity && isIrrigationActivity(singleActivity)) {
-      return t('home.waterDurationValue', {
-        hours: Number(waterHours) || 0,
-        minutes: Number(waterMinutes) || 0,
-      });
+    if (showIrrigationDetails) {
+      return [
+        t('home.waterDurationValue', {
+          hours: Number(waterHours) || 0,
+          minutes: Number(waterMinutes) || 0,
+        }),
+        resolvedNutrients.join(', '),
+        resolvedNematicides.join(', '),
+        resolvedBiologicals.join(', '),
+        moonPhase ? t(`home.moonPhases.${moonPhase}`) : '',
+      ]
+        .filter(Boolean)
+        .join(' · ');
     }
     if (singleActivity && isFertilizerActivity(singleActivity)) {
       return [productName, quantity && `${quantity}${unit}`].filter(Boolean).join(' · ');
+    }
+    if (singleActivity && isWorkerSpendActivity(singleActivity)) {
+      const parts = [workName.trim()];
+      const worker = resolveWorkerName(selectedWorker, customWorker);
+      if (worker) parts.push(worker);
+      if (workerSpend.trim()) parts.push(`₹${workerSpend}`);
+      return parts.filter(Boolean).join(' · ') || t('home.activityTypes.worker_spend');
+    }
+    if (singleActivity && isCulturalActivity(singleActivity)) {
+      return t(`home.activityTypes.${singleActivity}`);
     }
     if (singleActivity) {
       return t(`home.activityTypes.${singleActivity}`);
@@ -437,21 +552,34 @@ export function AddActivityModal({
     return undefined;
   })();
 
-  const canSave = Boolean(selectedFarm) && (spraySubTypes.length > 0 || Boolean(singleActivity));
+  const canSave =
+    Boolean(selectedFarm) &&
+    (spraySubTypes.length > 0 || irrigationSubTypes.length > 0 || Boolean(singleActivity));
 
   const handleSave = async () => {
     if (!selectedFarm) {
       Alert.alert(t('home.saveErrorTitle'), t('home.noPlotSelected'));
       return;
     }
-    if (spraySubTypes.length === 0 && !singleActivity) {
+    if (spraySubTypes.length === 0 && irrigationSubTypes.length === 0 && !singleActivity) {
       Alert.alert(t('home.saveErrorTitle'), t('home.selectActivityPrompt'));
       return;
     }
     setSaving(true);
     try {
-      const activityType: FarmActivityType =
-        spraySubTypes.length > 0 ? 'spray' : singleActivity!;
+      const activityType: FarmActivityType = (() => {
+        if (spraySubTypes.length > 0) return 'spray';
+        if (irrigationSubTypes.length > 0) {
+          if (irrigationSubTypes.length === 1 && irrigationSubTypes[0] === 'plain') {
+            return 'irrigation_plain';
+          }
+          if (irrigationSubTypes.length === 1 && irrigationSubTypes[0] === 'nutrient') {
+            return 'irrigation_nutrient';
+          }
+          return 'irrigation';
+        }
+        return singleActivity!;
+      })();
 
       const payload: Omit<FarmActivityLog, 'id' | 'createdAt'> = {
         userId,
@@ -463,10 +591,9 @@ export function AddActivityModal({
 
       if (notes.trim()) payload.notes = notes.trim();
 
-      const costNum = Number(cost);
-      if (cost.trim() && !Number.isNaN(costNum) && costNum > 0) {
-        payload.cost = costNum;
-      }
+      const allProductLines: ProductLineItem[] = [];
+      const waterNum = Number(sprayWaterLiters) || 0;
+      if (waterNum > 0) payload.sprayWaterLiters = waterNum;
 
       if (spraySubTypes.length > 0) {
         payload.spraySubTypes = spraySubTypes;
@@ -476,6 +603,7 @@ export function AddActivityModal({
             payload.fungicideProducts = list;
             payload.fungicideProduct = list.join(', ');
           }
+          allProductLines.push(...collectProductLines('fungicide', list));
         }
         if (spraySubTypes.includes('insecticide')) {
           const list = resolvedInsecticides;
@@ -483,6 +611,7 @@ export function AddActivityModal({
             payload.insecticideProducts = list;
             payload.insecticideProduct = list.join(', ');
           }
+          allProductLines.push(...collectProductLines('insecticide', list));
         }
         if (spraySubTypes.includes('micronutrient_spray')) {
           const list = resolvedMicronutrients;
@@ -490,32 +619,56 @@ export function AddActivityModal({
             payload.micronutrientProducts = list;
             payload.micronutrientProduct = list.join(', ');
           }
+          allProductLines.push(...collectProductLines('micronutrient_spray', list));
         }
         if (spraySubTypes.includes('pgr')) {
           const list = resolvedPgrs;
           if (list.length) payload.pgrProducts = list;
+          allProductLines.push(...collectProductLines('pgr', list));
         }
         if (spraySubTypes.includes('fertilizer_spray')) {
           const list = resolvedFertilizerSprays;
           if (list.length) payload.fertilizerSprayProducts = list;
+          allProductLines.push(...collectProductLines('fertilizer_spray', list));
         }
         if (spraySubTypes.includes('bactericide')) {
           const list = resolvedBactericides;
           if (list.length) payload.bactericideProducts = list;
+          allProductLines.push(...collectProductLines('bactericide', list));
         }
         if (spraySubTypes.includes('water_ph_balancer')) {
           const list = resolvedPhBalancers;
           if (list.length) payload.waterPhBalancerProducts = list;
+          allProductLines.push(...collectProductLines('water_ph_balancer', list));
         }
         if (spraySubTypes.includes('spreader_sticker')) {
           const list = resolvedSpreaderStickers;
           if (list.length) payload.spreaderStickerProducts = list;
+          allProductLines.push(...collectProductLines('spreader_sticker', list));
         }
-      } else if (singleActivity && isIrrigationActivity(singleActivity)) {
+      } else if (irrigationSubTypes.length > 0) {
+        payload.irrigationSubTypes = irrigationSubTypes;
         payload.durationHours = Number(waterHours) || 0;
         payload.durationMinutes = Number(waterMinutes) || 0;
-        if (singleActivity === 'irrigation_nutrient' && productName.trim()) {
-          payload.productName = productName.trim();
+
+        if (irrigationSubTypes.includes('nutrient')) {
+          const list = resolvedNutrients;
+          if (list.length) {
+            payload.nutrientProducts = list;
+            payload.productName = list.join(', ');
+          }
+          allProductLines.push(...collectProductLines('nutrient', list));
+        }
+        if (irrigationSubTypes.includes('nematicide_drench')) {
+          const list = resolvedNematicides;
+          if (list.length) payload.nematicideProducts = list;
+          allProductLines.push(...collectProductLines('nematicide_drench', list));
+        }
+        if (irrigationSubTypes.includes('biological')) {
+          const list = resolvedBiologicals;
+          if (list.length) payload.biologicalProducts = list;
+          allProductLines.push(...collectProductLines('biological', list));
+          if (moonPhase) payload.moonPhase = moonPhase;
         }
       } else if (singleActivity && isFertilizerActivity(singleActivity)) {
         payload.productName = productName.trim() || t(`home.activityTypes.${singleActivity}`);
@@ -524,9 +677,30 @@ export function AddActivityModal({
           payload.quantity = qty;
           payload.unit = unit;
         }
+      } else if (singleActivity && isWorkerSpendActivity(singleActivity)) {
+        if (workName.trim()) payload.workName = workName.trim();
+        const worker = resolveWorkerName(selectedWorker, customWorker);
+        if (worker) {
+          payload.workerName = worker;
+          ensureWorker(worker);
+        }
+        const wAmount = Number(workerSpend);
+        if (workerSpend.trim() && !Number.isNaN(wAmount) && wAmount > 0) {
+          payload.workerSpend = wAmount;
+        }
       }
 
-      await onSave(payload);
+      if (allProductLines.length) payload.productLines = allProductLines;
+
+      const lineCost = sumProductLineCosts(allProductLines);
+      const costNum = Number(cost);
+      if (lineCost > 0) {
+        payload.cost = lineCost;
+      } else if (cost.trim() && !Number.isNaN(costNum) && costNum > 0) {
+        payload.cost = costNum;
+      }
+
+      await onSave(payload, editLog ? { id: editLog.id, createdAt: editLog.createdAt } : undefined);
       onClose();
     } catch (error) {
       console.error('[AddActivityModal] save failed', error);
@@ -614,8 +788,30 @@ export function AddActivityModal({
                         );
                       }
 
+                      if (group.multiSelect && isIrrigationSubType(type)) {
+                        const selected = irrigationSubTypes.includes(type);
+                        return (
+                          <Pressable
+                            key={type}
+                            onPress={() => toggleIrrigationSubType(type)}
+                            style={[styles.activityBtn, selected && styles.activityBtnSelected]}>
+                            {selected ? <Text style={styles.checkMark}>✓</Text> : null}
+                            <Text
+                              style={[
+                                styles.activityBtnText,
+                                selected && styles.activityBtnTextSelected,
+                              ]}
+                              numberOfLines={3}>
+                              {t(getActivityLabelKey(type))}
+                            </Text>
+                          </Pressable>
+                        );
+                      }
+
                       const selected =
-                        spraySubTypes.length === 0 && singleActivity === type;
+                        spraySubTypes.length === 0 &&
+                        irrigationSubTypes.length === 0 &&
+                        singleActivity === type;
                       return (
                         <Pressable
                           key={type}
@@ -644,130 +840,156 @@ export function AddActivityModal({
               onToggle={() => toggleSection('details')}>
               {showSprayDetails && spraySubTypes.length > 0 && (
                 <View style={styles.sprayDetailsStack}>
+                  <FieldInput
+                    value={sprayWaterLiters}
+                    onChangeText={setSprayWaterLiters}
+                    placeholder={t('home.sprayWaterLiters')}
+                    keyboardType="numeric"
+                  />
+
                   {spraySubTypes.includes('fungicide') && (
-                    <MultiProductPicker
+                    <ProductUsagePicker
+                      group="fungicide"
                       label={t('home.selectFungicide')}
                       hint={t('home.productMultiSelectHint')}
                       accentColor={FUNGICIDE_ACCENT}
-                      products={FUNGICIDE_PRODUCTS}
+                      products={fungicideProductList}
                       selected={fungicideProducts}
                       onToggle={toggleFungicide}
                       customValue={customFungicide}
                       onCustomChange={setCustomFungicide}
                       customPlaceholder={t('home.customFungicide')}
+                      waterLiters={sprayWaterLiters}
                     />
                   )}
 
                   {spraySubTypes.includes('insecticide') && (
-                    <MultiProductPicker
+                    <ProductUsagePicker
+                      group="insecticide"
                       label={t('home.selectInsecticide')}
                       hint={t('home.productMultiSelectHint')}
                       accentColor={INSECTICIDE_ACCENT}
-                      products={INSECTICIDE_PRODUCTS}
+                      products={insecticideProductList}
                       selected={insecticideProducts}
                       onToggle={toggleInsecticide}
                       customValue={customInsecticide}
                       onCustomChange={setCustomInsecticide}
                       customPlaceholder={t('home.customInsecticide')}
+                      waterLiters={sprayWaterLiters}
                     />
                   )}
 
                   {spraySubTypes.includes('bactericide') && (
-                    <MultiProductPicker
+                    <ProductUsagePicker
+                      group="bactericide"
                       label={t('home.selectBactericide')}
                       hint={t('home.productMultiSelectHint')}
                       accentColor={BACTERICIDE_ACCENT}
-                      products={BACTERICIDE_PRODUCTS}
+                      products={bactericideProductList}
                       selected={bactericideProducts}
                       onToggle={toggleBactericide}
                       customValue={customBactericide}
                       onCustomChange={setCustomBactericide}
                       customPlaceholder={t('home.customBactericide')}
+                      waterLiters={sprayWaterLiters}
                     />
                   )}
 
                   {spraySubTypes.includes('pgr') && (
-                    <MultiProductPicker
+                    <ProductUsagePicker
+                      group="pgr"
                       label={t('home.selectPgr')}
                       hint={t('home.productMultiSelectHint')}
                       accentColor={PGR_ACCENT}
-                      products={PGR_PRODUCTS}
+                      products={pgrProductList}
                       selected={pgrProducts}
                       onToggle={togglePgr}
                       customValue={customPgr}
                       onCustomChange={setCustomPgr}
                       customPlaceholder={t('home.customPgr')}
+                      waterLiters={sprayWaterLiters}
                     />
                   )}
 
                   {spraySubTypes.includes('fertilizer_spray') && (
-                    <MultiProductPicker
+                    <ProductUsagePicker
+                      group="fertilizer_spray"
                       label={t('home.selectFertilizerSpray')}
                       hint={t('home.productMultiSelectHint')}
                       accentColor={FERTILIZER_SPRAY_ACCENT}
-                      products={FERTILIZER_SPRAY_PRODUCTS}
+                      products={fertilizerSprayProductList}
                       selected={fertilizerSprayProducts}
                       onToggle={toggleFertilizerSpray}
                       customValue={customFertilizerSpray}
                       onCustomChange={setCustomFertilizerSpray}
                       customPlaceholder={t('home.customFertilizerSpray')}
+                      waterLiters={sprayWaterLiters}
                     />
                   )}
 
                   {spraySubTypes.includes('micronutrient_spray') && (
-                    <MultiProductPicker
+                    <ProductUsagePicker
+                      group="micronutrient_spray"
                       label={t('home.selectMicronutrient')}
                       hint={t('home.productMultiSelectHint')}
                       accentColor={MICRONUTRIENT_ACCENT}
-                      products={MICRONUTRIENT_PRODUCTS}
+                      products={micronutrientProductList}
                       selected={micronutrientProducts}
                       onToggle={toggleMicronutrient}
                       customValue={customMicronutrient}
                       onCustomChange={setCustomMicronutrient}
                       customPlaceholder={t('home.customMicronutrient')}
+                      waterLiters={sprayWaterLiters}
                     />
                   )}
 
                   {spraySubTypes.includes('water_ph_balancer') && (
-                    <MultiProductPicker
+                    <ProductUsagePicker
+                      group="water_ph_balancer"
                       label={t('home.selectWaterPhBalancer')}
                       hint={t('home.waterPhBalancerHint')}
                       accentColor={PH_BALANCER_ACCENT}
-                      products={WATER_PH_BALANCER_PRODUCTS}
+                      products={waterPhBalancerProductList}
                       selected={waterPhBalancerProducts}
                       onToggle={toggleWaterPhBalancer}
                       customValue={customWaterPhBalancer}
                       onCustomChange={setCustomWaterPhBalancer}
                       customPlaceholder={t('home.customWaterPhBalancer')}
+                      waterLiters={sprayWaterLiters}
                     />
                   )}
 
                   {spraySubTypes.includes('spreader_sticker') && (
-                    <MultiProductPicker
+                    <ProductUsagePicker
+                      group="spreader_sticker"
                       label={t('home.selectSpreaderSticker')}
                       hint={t('home.productMultiSelectHint')}
                       accentColor={SPREADER_STICKER_ACCENT}
-                      products={SPREADER_STICKER_PRODUCTS}
+                      products={spreaderStickerProductList}
                       selected={spreaderStickerProducts}
                       onToggle={toggleSpreaderSticker}
                       customValue={customSpreaderSticker}
                       onCustomChange={setCustomSpreaderSticker}
                       customPlaceholder={t('home.customSpreaderSticker')}
+                      waterLiters={sprayWaterLiters}
                     />
                   )}
-
                 </View>
               )}
 
-              {singleActivity && isIrrigationActivity(singleActivity) && spraySubTypes.length === 0 && (
-                <>
-                  {singleActivity === 'irrigation_nutrient' && (
+              {showIrrigationDetails && irrigationSubTypes.length > 0 && (
+                <View style={styles.sprayDetailsStack}>
+                  {(irrigationSubTypes.includes('nutrient') ||
+                    irrigationSubTypes.includes('nematicide_drench') ||
+                    irrigationSubTypes.includes('biological')) && (
                     <FieldInput
-                      value={productName}
-                      onChangeText={setProductName}
-                      placeholder={t('home.nutrientProduct')}
+                      value={sprayWaterLiters}
+                      onChangeText={setSprayWaterLiters}
+                      placeholder={t('home.sprayWaterLiters')}
+                      keyboardType="numeric"
                     />
                   )}
+
                   <View style={styles.durationRow}>
                     <FieldInput
                       value={waterHours}
@@ -784,10 +1006,84 @@ export function AddActivityModal({
                       flex
                     />
                   </View>
-                </>
+
+                  {irrigationSubTypes.includes('nutrient') && (
+                    <ProductUsagePicker
+                      group="nutrient"
+                      label={t('home.selectNutrientIrrigation')}
+                      hint={t('home.productMultiSelectHint')}
+                      accentColor={NUTRIENT_IRRIGATION_ACCENT}
+                      products={nutrientProductList}
+                      selected={nutrientProducts}
+                      onToggle={toggleNutrient}
+                      customValue={customNutrient}
+                      onCustomChange={setCustomNutrient}
+                      customPlaceholder={t('home.customNutrientIrrigation')}
+                      waterLiters={sprayWaterLiters}
+                    />
+                  )}
+
+                  {irrigationSubTypes.includes('nematicide_drench') && (
+                    <ProductUsagePicker
+                      group="nematicide_drench"
+                      label={t('home.selectNematicide')}
+                      hint={t('home.productMultiSelectHint')}
+                      accentColor={NEMATICIDE_ACCENT}
+                      products={nematicideProductList}
+                      selected={nematicideProducts}
+                      onToggle={toggleNematicide}
+                      customValue={customNematicide}
+                      onCustomChange={setCustomNematicide}
+                      customPlaceholder={t('home.customNematicide')}
+                      waterLiters={sprayWaterLiters}
+                    />
+                  )}
+
+                  {irrigationSubTypes.includes('biological') && (
+                    <>
+                      <Text style={styles.productSectionLabel}>{t('home.moonPhase')}</Text>
+                      <Text style={styles.productHint}>{t('home.moonPhaseHint')}</Text>
+                      <View style={styles.moonPhaseRow}>
+                        {(['full_moon', 'half_moon'] as MoonPhase[]).map((phase) => {
+                          const selected = moonPhase === phase;
+                          return (
+                            <Pressable
+                              key={phase}
+                              onPress={() => setMoonPhase(phase)}
+                              style={[
+                                styles.moonPhaseBtn,
+                                selected && styles.moonPhaseBtnSelected,
+                              ]}>
+                              <Text
+                                style={[
+                                  styles.moonPhaseBtnText,
+                                  selected && styles.moonPhaseBtnTextSelected,
+                                ]}>
+                                {t(`home.moonPhases.${phase}`)}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                      <ProductUsagePicker
+                        group="biological"
+                        label={t('home.selectBiological')}
+                        hint={t('home.biologicalHint')}
+                        accentColor={BIOLOGICAL_ACCENT}
+                        products={biologicalProductList}
+                        selected={biologicalProducts}
+                        onToggle={toggleBiological}
+                        customValue={customBiological}
+                        onCustomChange={setCustomBiological}
+                        customPlaceholder={t('home.customBiological')}
+                        waterLiters={sprayWaterLiters}
+                      />
+                    </>
+                  )}
+                </View>
               )}
 
-              {singleActivity && isFertilizerActivity(singleActivity) && spraySubTypes.length === 0 && (
+              {singleActivity && isFertilizerActivity(singleActivity) && spraySubTypes.length === 0 && irrigationSubTypes.length === 0 && (
                 <>
                   <FieldInput
                     value={productName}
@@ -809,8 +1105,25 @@ export function AddActivityModal({
 
               {singleActivity &&
                 isCulturalActivity(singleActivity) &&
-                spraySubTypes.length === 0 && (
+                spraySubTypes.length === 0 &&
+                irrigationSubTypes.length === 0 && (
                   <Text style={styles.fieldHint}>{t('home.culturalActivityHint')}</Text>
+                )}
+
+              {singleActivity &&
+                isWorkerSpendActivity(singleActivity) &&
+                spraySubTypes.length === 0 &&
+                irrigationSubTypes.length === 0 && (
+                  <WorkerSpendFields
+                    workName={workName}
+                    onWorkNameChange={setWorkName}
+                    selectedWorker={selectedWorker}
+                    onSelectedWorkerChange={setSelectedWorker}
+                    customWorker={customWorker}
+                    onCustomWorkerChange={setCustomWorker}
+                    workerSpend={workerSpend}
+                    onWorkerSpendChange={setWorkerSpend}
+                  />
                 )}
             </CollapsibleSection>
 
@@ -1047,6 +1360,23 @@ const styles = StyleSheet.create({
   chipCheck: { fontSize: 11, color: '#FFFFFF', fontWeight: '700' },
   productChipText: { fontSize: 12, color: TEXT, fontWeight: '500', flexShrink: 1 },
   productChipTextSelected: { color: '#FFFFFF', fontWeight: '700' },
+  moonPhaseRow: { flexDirection: 'row', gap: Spacing.two, marginBottom: Spacing.two },
+  moonPhaseBtn: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderColor: BORDER,
+    borderRadius: 12,
+    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.two,
+    backgroundColor: INPUT_BG,
+    alignItems: 'center',
+  },
+  moonPhaseBtnSelected: {
+    borderColor: BIOLOGICAL_ACCENT,
+    backgroundColor: '#EEF2FF',
+  },
+  moonPhaseBtnText: { fontSize: 13, fontWeight: '600', color: TEXT_SECONDARY, textAlign: 'center' },
+  moonPhaseBtnTextSelected: { color: BIOLOGICAL_ACCENT, fontWeight: '700' },
   durationRow: { flexDirection: 'row', gap: Spacing.two },
   costRow: { flexDirection: 'row', gap: Spacing.two, alignItems: 'center' },
   currencyBox: {

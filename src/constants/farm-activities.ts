@@ -1,4 +1,11 @@
-import type { ActivityGroupId, FarmActivityType, SpraySubType } from '@/types';
+import type { ActivityGroupId, FarmActivityType, IrrigationSubType, SpraySubType } from '@/types';
+
+export const IRRIGATION_MULTI_SELECT_TYPES: IrrigationSubType[] = [
+  'plain',
+  'nutrient',
+  'nematicide_drench',
+  'biological',
+];
 
 export const SPRAY_MULTI_SELECT_TYPES: SpraySubType[] = [
   'fungicide',
@@ -14,6 +21,9 @@ export const SPRAY_MULTI_SELECT_TYPES: SpraySubType[] = [
 export const IRRIGATION_ACTIVITY_TYPES: FarmActivityType[] = [
   'irrigation_plain',
   'irrigation_nutrient',
+  'irrigation',
+  'irrigation_nematicide_drench',
+  'irrigation_biological',
 ];
 
 export const SOIL_FERTILIZER_ACTIVITY_TYPES: FarmActivityType[] = ['fertilizer', 'fym_distribution'];
@@ -27,13 +37,15 @@ export const CULTURAL_ACTIVITY_TYPES: FarmActivityType[] = [
   'stem_wash',
 ];
 
+export const WORKER_SPEND_ACTIVITY_TYPES: FarmActivityType[] = ['worker_spend'];
+
 export type ActivityGroup = {
   id: ActivityGroupId;
   labelKey: string;
   hintKey?: string;
   accentColor: string;
   multiSelect: boolean;
-  items: (SpraySubType | FarmActivityType)[];
+  items: (SpraySubType | IrrigationSubType | FarmActivityType)[];
 };
 
 export const ACTIVITY_GROUPS: ActivityGroup[] = [
@@ -48,9 +60,10 @@ export const ACTIVITY_GROUPS: ActivityGroup[] = [
   {
     id: 'irrigation',
     labelKey: 'home.activityGroups.irrigation',
+    hintKey: 'home.irrigationMultiSelectHint',
     accentColor: '#0284C7',
-    multiSelect: false,
-    items: IRRIGATION_ACTIVITY_TYPES,
+    multiSelect: true,
+    items: IRRIGATION_MULTI_SELECT_TYPES,
   },
   {
     id: 'soil',
@@ -66,40 +79,49 @@ export const ACTIVITY_GROUPS: ActivityGroup[] = [
     multiSelect: false,
     items: CULTURAL_ACTIVITY_TYPES,
   },
+  {
+    id: 'labour',
+    labelKey: 'home.activityGroups.labour',
+    accentColor: '#7C3AED',
+    multiSelect: false,
+    items: WORKER_SPEND_ACTIVITY_TYPES,
+  },
 ];
 
 export const FERTILIZER_ACTIVITY_TYPES = SOIL_FERTILIZER_ACTIVITY_TYPES;
 
 export const FUNGICIDE_PRODUCTS = [
-  'Mancozeb',
-  'Copper Oxychloride',
-  'Carbendazim',
-  'Tebuconazole',
-  'Propiconazole',
-  'Hexaconazole',
-  'Difenoconazole',
-  'Azoxystrobin',
-  'Cymoxanil + Mancozeb (Curzate)',
-  'Metalaxyl + Mancozeb (Ridomil Gold)',
-  'Tricyclazole',
-  'Captan',
-  'Thiophanate Methyl',
-  'Sulphur',
-  'Bordeaux Mixture',
+  'Biostadt Roko',
+  'Ridomil Gold',
+  'Curzate M-8',
+  'Bavistin',
+  'Nativo',
+  'Score',
+  'Amistar',
+  'Kavach',
+  'Blitox',
+  'Anvil',
+  'Topsin M',
+  'Saaf',
+  'Contaf',
+  'Merger',
+  'Sulphur 80% WP',
   'Other',
 ] as const;
 
 export const INSECTICIDE_PRODUCTS = [
-  'Oberon',
-  'Tata Mait (Proclaim)',
+  'Proclaim',
   'Hamla',
-  'Confidor',
+  'Oberon',
   'Regent',
   'Coragen',
-  'Polo',
+  'Confidor',
   'Vertimec',
   'Actara',
+  'Polo',
   'Lannate',
+  'Marshal',
+  'Tracer',
   'Other',
 ] as const;
 
@@ -165,8 +187,37 @@ export const SPREADER_STICKER_PRODUCTS = [
   'Other',
 ] as const;
 
+export const NUTRIENT_IRRIGATION_PRODUCTS = [
+  '19:19:19',
+  '0:52:34',
+  '0:0:50',
+  '13:0:45',
+  '12:61:00',
+  '10:26:26',
+  'Humic Acid',
+  'Other',
+] as const;
+
+export const NEMATICIDE_PRODUCTS = [
+  'Velum Prime',
+  'Vaniva',
+  'Nimon',
+  'Other',
+] as const;
+
+export const BIOLOGICAL_AGENT_PRODUCTS = [
+  'Trichoderma',
+  'Pseudomonas',
+  'Bacillus',
+  'Other',
+] as const;
+
 export function isSpraySubType(value: string): value is SpraySubType {
   return SPRAY_MULTI_SELECT_TYPES.includes(value as SpraySubType);
+}
+
+export function isIrrigationSubType(value: string): value is IrrigationSubType {
+  return IRRIGATION_MULTI_SELECT_TYPES.includes(value as IrrigationSubType);
 }
 
 export function isIrrigationActivity(type: FarmActivityType): boolean {
@@ -181,8 +232,16 @@ export function isCulturalActivity(type: FarmActivityType): boolean {
   return CULTURAL_ACTIVITY_TYPES.includes(type);
 }
 
+export function isWorkerSpendActivity(type: FarmActivityType): boolean {
+  return WORKER_SPEND_ACTIVITY_TYPES.includes(type);
+}
+
 export function hasSprayDetails(spraySubTypes: SpraySubType[]): boolean {
   return spraySubTypes.length > 0;
+}
+
+export function hasIrrigationDetails(irrigationSubTypes: IrrigationSubType[]): boolean {
+  return irrigationSubTypes.length > 0;
 }
 
 export function toggleProductInList(list: string[], product: string): string[] {
@@ -202,6 +261,8 @@ export function formatProductList(products?: string[], legacy?: string): string 
   return legacy;
 }
 
-export function getActivityLabelKey(type: SpraySubType | FarmActivityType): string {
-  return isSpraySubType(type) ? `home.spraySubTypes.${type}` : `home.activityTypes.${type}`;
+export function getActivityLabelKey(type: SpraySubType | IrrigationSubType | FarmActivityType): string {
+  if (isSpraySubType(type)) return `home.spraySubTypes.${type}`;
+  if (isIrrigationSubType(type)) return `home.irrigationSubTypes.${type}`;
+  return `home.activityTypes.${type}`;
 }

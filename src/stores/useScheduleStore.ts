@@ -39,6 +39,7 @@ interface ScheduleState {
   addIrrigationLog: (log: IrrigationLog) => void;
   removeIrrigationLog: (id: string) => void;
   addFarmActivityLog: (log: FarmActivityLog) => void;
+  updateFarmActivityLog: (log: FarmActivityLog) => void;
   removeFarmActivityLog: (id: string) => void;
 }
 
@@ -86,6 +87,13 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
   addFarmActivityLog: (log) => {
     set((s) => {
       const farmActivityLogs = [log, ...s.farmActivityLogs];
+      persistActivityLogs(log.userId, farmActivityLogs).catch(() => {});
+      return { farmActivityLogs };
+    });
+  },
+  updateFarmActivityLog: (log) => {
+    set((s) => {
+      const farmActivityLogs = s.farmActivityLogs.map((l) => (l.id === log.id ? log : l));
       persistActivityLogs(log.userId, farmActivityLogs).catch(() => {});
       return { farmActivityLogs };
     });

@@ -49,6 +49,11 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /products/{productId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
     match /chatGroups/{groupId} {
       allow read: if isSignedIn();
       allow write: if isSignedIn();

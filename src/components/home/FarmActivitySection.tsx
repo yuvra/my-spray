@@ -1,6 +1,6 @@
 import { format } from 'date-fns';
 import { useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Modal, Pressable, StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
 import { FertActivityIcon } from '@/components/icons/AppIcons';
@@ -10,12 +10,16 @@ import { FarmStrip } from '@/components/home/FarmStrip';
 import { MonthCalendar } from '@/components/home/MonthCalendar';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
-import { saveFarmActivityLog } from '@/services/firestoreService';
+import {
+  deleteFarmActivityLog,
+  saveFarmActivityLog,
+} from '@/services/firestoreService';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useFarmStore } from '@/stores/useFarmStore';
 import { useScheduleStore } from '@/stores/useScheduleStore';
 import {
   getActivityDetails,
+  getActivityDisplayCost,
   getActivityTitle,
   getActivityVariant,
 } from '@/utils/activity-display';
@@ -24,6 +28,7 @@ import {
   getActiveDatesForFarm,
   getLogsForFarmAndDate,
 } from '@/utils/farm-logs';
+import { logToFormDate } from '@/utils/activity-form';
 import type { FarmActivityLog } from '@/types';
 
 const GREEN = '#3D6B35';
@@ -47,12 +52,18 @@ export function FarmActivitySection() {
   const irrigationLogs = useScheduleStore((s) => s.irrigationLogs);
   const farmActivityLogs = useScheduleStore((s) => s.farmActivityLogs);
   const addFarmActivityLog = useScheduleStore((s) => s.addFarmActivityLog);
+  const updateFarmActivityLog = useScheduleStore((s) => s.updateFarmActivityLog);
+  const removeFarmActivityLog = useScheduleStore((s) => s.removeFarmActivityLog);
+  const removeSprayLog = useScheduleStore((s) => s.removeSprayLog);
+  const removeFertilizerLog = useScheduleStore((s) => s.removeFertilizerLog);
+  const removeIrrigationLog = useScheduleStore((s) => s.removeIrrigationLog);
   const hydrateFarmActivityLogs = useScheduleStore((s) => s.hydrateFarmActivityLogs);
 
   const [month, setMonth] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [showCalendar, setShowCalendar] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingLog, setEditingLog] = useState<FarmActivityLog | null>(null);
 
   useEffect(() => {
     hydrate(userId).then(() => {
@@ -101,8 +112,22 @@ export function FarmActivitySection() {
     fertilizers.length > 0 ||
     irrigations.length > 0;
 
-  const handleSaveActivity = async (data: Omit<FarmActivityLog, 'id' | 'createdAt'>) => {
-    const payload = { ...data, createdAt: new Date().toISOString() };
+  const handleSaveActivity = async (
+    data: Omit<FarmActivityLog, 'id' | 'createdAt'>,
+    options?: { id?: string; createdAt?: string },
+  ) => {
+    const createdAt = options?.createdAt ?? new Date().toISOString();
+
+    if (options?.id) {
+      const payload = { ...data, createdAt };
+      const updated: FarmActivityLog = { ...payload, id: options.id };
+      updateFarmActivityLog(updated);
+      await saveFarmActivityLog(payload, options.id);
+      setEditingLog(null);
+      return;
+    }
+
+    const payload = { ...data, createdAt };
     const localId = `local-${Date.now()}`;
     addFarmActivityLog({ ...payload, id: localId });
     const firestoreId = await saveFarmActivityLog(payload);
@@ -113,6 +138,35 @@ export function FarmActivitySection() {
           .farmActivityLogs.map((log) => (log.id === localId ? { ...log, id: firestoreId } : log)),
       );
     }
+  };
+
+  const confirmDelete = (onConfirm: () => void) => {
+    Alert.alert(t('home.deleteActivityTitle'), t('home.deleteActivityMessage'), [
+      { text: t('home.cancel'), style: 'cancel' },
+      { text: t('schedule.delete'), style: 'destructive', onPress: onConfirm },
+    ]);
+  };
+
+  const handleDeleteActivity = (log: FarmActivityLog) => {
+    confirmDelete(() => {
+      removeFarmActivityLog(log.id);
+      void deleteFarmActivityLog(log.id);
+    });
+  };
+
+  const openAddModal = () => {
+    setEditingLog(null);
+    setShowAddModal(true);
+  };
+
+  const openEditModal = (log: FarmActivityLog) => {
+    setEditingLog(log);
+    setShowAddModal(true);
+  };
+
+  const closeActivityModal = () => {
+    setShowAddModal(false);
+    setEditingLog(null);
   };
 
   if (!hydrated) return null;
@@ -144,9 +198,12 @@ export function FarmActivitySection() {
                 <ActivityCard
                   key={log.id}
                   variant={getActivityVariant(log)}
+                  moonPhase={log.moonPhase}
                   title={getActivityTitle(log, t)}
                   details={getActivityDetails(log, t)}
-                  cost={log.cost}
+                  cost={getActivityDisplayCost(log)}
+                  onEdit={() => openEditModal(log)}
+                  onDelete={() => handleDeleteActivity(log)}
                 />
               ))}
 
@@ -168,7 +225,7 @@ export function FarmActivitySection() {
                       ? [{ key: 'notes' as const, label: t('schedule.notes'), value: log.notes }]
                       : []),
                   ]}
-                  cost={log.cost}
+                  onDelete={() => confirmDelete(() => removeIrrigationLog(log.id))}
                 />
               ))}
 
@@ -189,6 +246,7 @@ export function FarmActivitySection() {
                       : []),
                   ]}
                   cost={log.cost}
+                  onDelete={() => confirmDelete(() => removeSprayLog(log.id))}
                 />
               ))}
 
@@ -208,6 +266,7 @@ export function FarmActivitySection() {
                       : []),
                   ]}
                   cost={log.cost}
+                  onDelete={() => confirmDelete(() => removeFertilizerLog(log.id))}
                 />
               ))}
             </View>
@@ -216,7 +275,7 @@ export function FarmActivitySection() {
       )}
 
       <Pressable
-        onPress={() => setShowAddModal(true)}
+        onPress={openAddModal}
         style={styles.fab}
         accessibilityLabel={t('home.addActivity')}
         accessibilityRole="button">
@@ -248,12 +307,13 @@ export function FarmActivitySection() {
 
       <AddActivityModal
         visible={showAddModal}
-        onClose={() => setShowAddModal(false)}
+        onClose={closeActivityModal}
         farms={farms}
         defaultFarmId={selectedFarm?.id ?? null}
-        defaultDate={selectedDate}
+        defaultDate={editingLog ? logToFormDate(editingLog) : selectedDate}
         activeDates={activeDates}
         userId={userId}
+        editLog={editingLog}
         onSave={handleSaveActivity}
       />
     </View>

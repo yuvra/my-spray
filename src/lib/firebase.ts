@@ -35,9 +35,28 @@ export const isFirebaseConfigured = Boolean(
     !isPlaceholder(firebaseConfig.projectId),
 );
 
+const catalogFirebaseConfig = {
+  apiKey: process.env.EXPO_PUBLIC_CATALOG_FIREBASE_API_KEY ?? '',
+  authDomain: process.env.EXPO_PUBLIC_CATALOG_FIREBASE_AUTH_DOMAIN ?? '',
+  projectId: process.env.EXPO_PUBLIC_CATALOG_FIREBASE_PROJECT_ID ?? '',
+  storageBucket: process.env.EXPO_PUBLIC_CATALOG_FIREBASE_STORAGE_BUCKET ?? '',
+  messagingSenderId: process.env.EXPO_PUBLIC_CATALOG_FIREBASE_MESSAGING_SENDER_ID ?? '',
+  appId: process.env.EXPO_PUBLIC_CATALOG_FIREBASE_APP_ID ?? '',
+};
+
+/** Krushi Sarthi product catalog (optional separate Firebase project). */
+export const isProductCatalogConfigured = Boolean(
+  catalogFirebaseConfig.apiKey &&
+    catalogFirebaseConfig.projectId &&
+    !isPlaceholder(catalogFirebaseConfig.apiKey) &&
+    !isPlaceholder(catalogFirebaseConfig.projectId),
+);
+
 let app: FirebaseApp | undefined;
+let catalogApp: FirebaseApp | undefined;
 let auth: Auth | undefined;
 let db: Firestore | undefined;
+let catalogDb: Firestore | undefined;
 let storage: FirebaseStorage | undefined;
 let functions: Functions | undefined;
 
@@ -81,6 +100,14 @@ function initFirebase() {
   }
 }
 
+function initProductCatalogFirebase() {
+  if (!isProductCatalogConfigured || catalogDb) return;
+
+  const existing = getApps().find((item) => item.name === 'product-catalog');
+  catalogApp = existing ?? initializeApp(catalogFirebaseConfig, 'product-catalog');
+  catalogDb = getFirestore(catalogApp);
+}
+
 export function getFirebaseAuth(): Auth {
   initFirebase();
   if (!auth) throw new Error('Firebase is not configured. Add credentials to .env or use Demo Mode.');
@@ -91,6 +118,16 @@ export function getFirebaseDb(): Firestore {
   initFirebase();
   if (!db) throw new Error('Firebase is not configured.');
   return db;
+}
+
+/** Firestore for product catalog — Krushi Sarthi project or main app `products` collection. */
+export function getProductCatalogDb(): Firestore {
+  if (isProductCatalogConfigured) {
+    initProductCatalogFirebase();
+    if (!catalogDb) throw new Error('Product catalog Firebase is not configured.');
+    return catalogDb;
+  }
+  return getFirebaseDb();
 }
 
 export function getFirebaseStorage(): FirebaseStorage {
